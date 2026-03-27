@@ -51,6 +51,12 @@ nm
   - `3` 免重装热修改端口与 IP（当 NAT 商家突然变更映射端口时，救命神器）
   - `7` 热更新面板代码（直接从 GitHub 同步你的最新改动）
 
+
+* 若提示没有curl或wget，先安装即可
+* Ubuntu/Debian：apt-get install -y curl wget
+* Alpine：apk add curl wget
+* Fedora：dnf install -y curl wget
+* CentOS/Rocky/Almalinux/Oracle-linux/Amazon-linux：yum install -y curl wget
 -----
 
 ## 📖 进阶教程：如何制作属于你的 `is.gd` 极简短链？
