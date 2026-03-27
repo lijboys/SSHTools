@@ -9,8 +9,8 @@ RESET="\033[0m"
 CONFIG_FILE="/etc/mtg.toml"
 INFO_FILE="/etc/mtg_info.txt"
 
-# 🚨 请务必把这里替换成你 GitHub 仓库真实的 Raw 链接！
-SCRIPT_URL="https://raw.githubusercontent.com/lijboys/NAT-MTP/main/nm.sh"
+# 你的真实 GitHub Raw 链接已填入
+SCRIPT_URL="https://raw.githubusercontent.com/lijboys/NAT-MTP/refs/heads/main/nm.sh"
 
 if [ "$EUID" -ne 0 ]; then echo -e "${RED}请使用 root 用户运行！${RESET}"; exit 1; fi
 
@@ -25,7 +25,7 @@ get_status() {
 choose_and_generate_secret() {
     echo ""
     echo -e "${CYAN}--- 请选择 FakeTLS 伪装域名 ---${RESET}"
-    echo -e "  ${GREEN}1.${RESET} cn.bing.com   (推荐！微软，隐蔽性极高)"
+    echo -e "  ${GREEN}1.${RESET} cn.bing.com   (推荐！微软必应，隐蔽性极高)"
     echo -e "  ${GREEN}1.${RESET} itunes.apple.com   (推荐！苹果商店，隐蔽性极高)"
     echo -e "  ${GREEN}2.${RESET} www.cloudflare.com (推荐！全球最大CDN，藏木于林)"
     echo -e "  ${GREEN}3.${RESET} gateway.icloud.com (iCloud同步接口，流量自然)"
@@ -65,10 +65,20 @@ install_mtp() {
     
     AUTO_IP=$(curl -s4m5 ifconfig.me || curl -s4m5 ipinfo.io/ip)
     echo ""
-    read -p "👉 1. 请输入小鸡的【内网端口】: " IN_PORT
+    
+    # 💡 核心修改：内网端口支持回车随机生成 (兼容 Alpine)
+    read -p "👉 1. 请输入小鸡的【内网端口】 (10000-60000，回车默认随机): " IN_PORT
+    if [ -z "$IN_PORT" ]; then
+        IN_PORT=$(awk 'BEGIN{srand(); print int(10000+rand()*50001)}')
+        echo -e "   ${GREEN}✅ 已为你随机分配内网端口: ${IN_PORT}${RESET}"
+        echo -e "   ${YELLOW}📌 请记下此端口，稍后去 NAT 面板将其映射出去！${RESET}"
+    fi
+    
     read -p "👉 2. 请输入商家的【公网 IPv4 地址】 (回车默认 $AUTO_IP): " PUBLIC_IP
     PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
-    read -p "👉 3. 请输入面板分配的【公网端口】: " OUT_PORT
+    
+    read -p "👉 3. 请输入面板分配的【公网端口】 (如果你还没去面板设置，直接回车先用内网端口顶替): " OUT_PORT
+    OUT_PORT=${OUT_PORT:-$IN_PORT}
     
     choose_and_generate_secret
     
@@ -106,8 +116,8 @@ EOT
     echo "SECRET=${SECRET}" >> $INFO_FILE
     echo "TG_LINK=${TG_LINK}" >> $INFO_FILE
     
-    echo -e "\n${GREEN}✅ 部署成功！${RESET}"
-    echo -e "你的 TG 一键直连链接是：\n${YELLOW}${TG_LINK}${RESET}\n"
+    echo -e "\n${GREEN}✅ 部署成功！程序已在后台监听端口 ${IN_PORT}${RESET}"
+    echo -e "你的初步 TG 链接是 (如果公网端口填错了，可以在主菜单选 3 修改)：\n${YELLOW}${TG_LINK}${RESET}\n"
     read -p "按回车键返回主菜单..."
 }
 
@@ -205,7 +215,7 @@ while true; do
     echo -e "当前状态: $(get_status)"
     echo -e "快捷指令: ${GREEN}nm${RESET}"
     echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${GREEN}1.${RESET} 安装 / 重装 MTP (支持自定义伪装)"
+    echo -e "  ${GREEN}1.${RESET} 安装 / 重装 MTP (支持回车随机端口)"
     echo -e "  ${GREEN}2.${RESET} 查看当前 TG 链接与信息"
     echo -e "  ${GREEN}3.${RESET} 修改端口、IP与伪装域名"
     echo -e "  ${YELLOW}4.${RESET} 启动 MTP 服务"
