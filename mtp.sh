@@ -224,6 +224,7 @@ while true; do
     echo -e "  ${RED}6.${RESET} 彻底卸载 MTP"
     echo -e "  ${CYAN}7.${RESET} 更新面板代码 (从 GitHub 同步)"
     echo -e "  ${GREEN}0.${RESET} 退出面板"
+    echo -e "  ${YELLOW}00.${RESET} 返回主菜单 (NatTools)"
     echo -e "${CYAN}=========================================${RESET}"
     read -p "请输入序号选择功能: " choice
     
@@ -232,6 +233,7 @@ while true; do
         4) if command -v systemctl >/dev/null 2>&1; then systemctl start mtg; else nohup /usr/local/bin/mtg run /etc/mtg.toml > /var/log/mtg.log 2>&1 & fi; echo -e "${GREEN}已启动！${RESET}"; sleep 1 ;;
         5) if command -v systemctl >/dev/null 2>&1; then systemctl stop mtg; else pkill -f "mtg run"; fi; echo -e "${RED}已停止！${RESET}"; sleep 1 ;;
         6) uninstall_mtp ;; 7) update_script ;; 0) clear; exit 0 ;;
+        00) if [ -f "/usr/local/bin/nat" ]; then /usr/local/bin/nat; else echo -e "${RED}未安装主控！${RESET}"; sleep 1; fi ;;
         *) echo -e "${RED}输入错误！${RESET}"; sleep 1 ;;
     esac
 done
