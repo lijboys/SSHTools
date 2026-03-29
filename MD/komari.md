@@ -1,6 +1,6 @@
 # 📊 NatTools - Komari 探针部署教程
 
-[⬅️ 返回 NooMili 工具箱主页](./README.md)
+[⬅️ 返回 NooMili 工具箱主页](../README.md)
 
 ## 🌟 简介
 
