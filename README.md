@@ -2,7 +2,7 @@
 
 <div align="center">
   
-[🦇 MTP 代理搭建教程](./MD/MTP.md) | [📊 Komari 探针部署教程](./MD/komari.md)
+[🦇 MTP 代理搭建教程](./MD/MTP.md) | [📊 Komari 探针部署教程](./MD/komari.md) | [☁️ CF Worker 短链搭建教程](./MD/CF.md)
 
 </div>
 
@@ -16,10 +16,10 @@
 安装主控面板后，即可在内部自由调用各项功能。
 
 ### 方案 A：Cloudflare 自定义域名 (推荐)
-如果你在 cf 网页版配置了 Worker 代理拉取，直接在小鸡执行：
+如果你有自己的域名，利用 CF 网页版搭建专属的极简短链（告别 GitHub 墙的烦恼，极速秒连！）：
 ```bash
-bash <(curl -fsSL noomili.你的域名.com)
-````
+bash <(curl -fsSL n.你的域名.com)
+```
 
 ### 方案 B：免费短链白嫖（免域名、极简极短）
 
