@@ -11,7 +11,14 @@ YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 PLAIN='\033[0m'
 
-[[ $EUID -ne 0 ]] && echo -e "${RED}Error: Please run as root!${PLAIN}" && exit 1
+if [ "$EUID" -ne 0 ]; then echo -e "${RED}Error: Please run as root!${PLAIN}"; exit 1; fi
+
+# ================= 自动创建快捷键 =================
+if [ ! -f "/usr/local/bin/komari" ]; then
+    curl -fsSL "https://raw.githubusercontent.com/lijboys/NatTools/main/komari.sh" -o /usr/local/bin/komari 2>/dev/null || cp -f "$0" /usr/local/bin/komari
+    chmod +x /usr/local/bin/komari
+fi
+# ==================================================
 
 # 状态检测
 check_install() {
@@ -25,18 +32,21 @@ check_install() {
 draw_menu() {
     check_install
     clear
-    echo -e "komari $STATUS"
-    echo -e "轻量级的自托管服务器监控工具"
+    echo -e "${BLUE}=======================================${PLAIN}"
+    echo -e "       📊 Komari 探针管理面板"
+    echo -e "${BLUE}=======================================${PLAIN}"
+    echo -e "当前状态: komari $STATUS"
+    echo -e "快捷指令: ${GREEN}komari${PLAIN}"
     echo -e "官方介绍：https://github.com/komari-monitor/komari"
-    echo -e "---------------------------------------"
-    echo -e " 1. 安装                       2. 更新"
-    echo -e " 3. 卸载                       4. 查看初始凭据"
-    echo -e "---------------------------------------"
-    echo -e " 5. 添加域名访问 (含SSL/CF回源)  6. 删除域名访问"
-    echo -e " 7. 允许 IP+端口 访问           8. 阻止 IP+端口 访问"
-    echo -e "---------------------------------------"
-    echo -e " 0. 退出脚本"
-    echo -e "---------------------------------------"
+    echo -e "${BLUE}---------------------------------------${PLAIN}"
+    echo -e "  ${GREEN}1.${PLAIN} 安装                        ${GREEN}2.${PLAIN} 更新"
+    echo -e "  ${RED}3.${PLAIN} 卸载                        ${YELLOW}4.${PLAIN} 查看初始凭据"
+    echo -e "${BLUE}---------------------------------------${PLAIN}"
+    echo -e "  ${GREEN}5.${PLAIN} 添加域名访问 (含SSL/CF回源)   ${RED}6.${PLAIN} 删除域名访问"
+    echo -e "  ${GREEN}7.${PLAIN} 允许 IP+端口 访问             ${RED}8.${PLAIN} 阻止 IP+端口 访问"
+    echo -e "${BLUE}---------------------------------------${PLAIN}"
+    echo -e "  ${YELLOW}00.${PLAIN} 返回主菜单 (NatTools)      ${GREEN}0.${PLAIN} 退出脚本"
+    echo -e "${BLUE}=======================================${PLAIN}"
     echo -n " 请输入你的选择: "
 }
 
@@ -126,6 +136,15 @@ while true; do
            systemctl restart nginx ;;
         7) manage_firewall "allow" ;;
         8) manage_firewall "deny" ;;
-        0) exit 0 ;;
+        00) # 返回主菜单逻辑
+           if [ -f "/usr/local/bin/n" ]; then
+               exec /usr/local/bin/n
+           else
+               echo -e "${RED}未安装主控！请先运行主控安装命令。${PLAIN}"
+               sleep 2
+           fi
+           ;;
+        0) clear; exit 0 ;;
+        *) echo -e "${RED}输入错误，请重新选择！${PLAIN}"; sleep 1 ;;
     esac
 done
