@@ -10,7 +10,7 @@ CONFIG_FILE="/etc/mtg.toml"
 INFO_FILE="/etc/mtg_info.txt"
 
 # 你的真实 GitHub Raw 链接
-SCRIPT_URL="https://raw.githubusercontent.com/lijboys/NatTools/refs/heads/main/mtp.sh"
+SCRIPT_URL="https://raw.githubusercontent.com/lijboys/SSHTools/main/mtp.sh"
 
 if [ "$EUID" -ne 0 ]; then echo -e "${RED}请使用 root 用户运行！${RESET}"; exit 1; fi
 
@@ -22,7 +22,6 @@ get_status() {
     fi
 }
 
-# 完美修复了你的序号逻辑
 choose_and_generate_secret() {
     echo ""
     echo -e "${CYAN}--- 请选择 FakeTLS 伪装域名 ---${RESET}"
@@ -52,7 +51,7 @@ choose_and_generate_secret() {
 install_mtp() {
     clear
     echo -e "${CYAN}=========================================${RESET}"
-    echo -e "${CYAN}  🚀 开始部署 NAT 专属 mtg v2 代理${RESET}"
+    echo -e "${CYAN}  🚀 开始部署 mtg v2 伪装代理${RESET}"
     echo -e "${CYAN}=========================================${RESET}"
     
     if command -v systemctl >/dev/null 2>&1; then systemctl stop mtg 2>/dev/null; fi
@@ -67,19 +66,32 @@ install_mtp() {
     
     AUTO_IP=$(curl -s4m5 ifconfig.me || curl -s4m5 ipinfo.io/ip)
     echo ""
+    echo -e "${CYAN}--- 请选择你的机器网络环境 ---${RESET}"
+    echo -e "  ${GREEN}1.${RESET} 独立 VPS (拥有独立公网 IP，全端口开放)"
+    echo -e "  ${YELLOW}2.${RESET} NAT 小鸡 (仅开放部分映射端口)"
+    read -p "请输入序号 (回车默认选 1): " net_choice
     
-    # 无脑回车流：内网随机，公网跟随内网
-    read -p "👉 1. 请输入小鸡【内网端口】 (10000-60000，回车默认随机): " IN_PORT
-    if [ -z "$IN_PORT" ]; then
-        IN_PORT=$(awk 'BEGIN{srand(); print int(10000+rand()*50001)}')
-        echo -e "   ${GREEN}✅ 已为你随机分配内网端口: ${IN_PORT}${RESET}"
+    echo ""
+    if [ "$net_choice" == "2" ]; ]; then
+        # NAT 小鸡逻辑
+        read -p "👉 1. 请输入小鸡【内网端口】 (10000-60000，回车默认随机): " IN_PORT
+        if [ -z "$IN_PORT" ]; then
+            IN_PORT=$(awk 'BEGIN{srand(); print int(10000+rand()*50001)}')
+            echo -e "   ${GREEN}✅ 已为你随机分配内网端口: ${IN_PORT}${RESET}"
+        fi
+        read -p "👉 2. 请输入商家【公网 IPv4 地址】 (回车默认 $AUTO_IP): " PUBLIC_IP
+        PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
+        read -p "👉 3. 请输入分配的【公网端口】 (回车默认与内网一致: $IN_PORT): " OUT_PORT
+        OUT_PORT=${OUT_PORT:-$IN_PORT}
+    else
+        # 独立 VPS 逻辑
+        echo -e "${YELLOW}💡 提示: 独立 VPS 推荐使用 443 端口(最隐蔽)，但如果你机器上装了建站面板(占用443)，请换一个别的端口。${RESET}"
+        read -p "👉 请输入你想使用的端口 (回车默认 443): " IN_PORT
+        IN_PORT=${IN_PORT:-443}
+        OUT_PORT=$IN_PORT
+        PUBLIC_IP=$AUTO_IP
+        echo -e "   ${GREEN}✅ 已配置公网 IP: ${PUBLIC_IP} , 端口: ${IN_PORT}${RESET}"
     fi
-    
-    read -p "👉 2. 请输入商家【公网 IPv4 地址】 (回车默认 $AUTO_IP): " PUBLIC_IP
-    PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
-    
-    read -p "👉 3. 请输入分配的【公网端口】 (回车默认与内网一致: $IN_PORT): " OUT_PORT
-    OUT_PORT=${OUT_PORT:-$IN_PORT}
     
     choose_and_generate_secret
     
@@ -118,7 +130,7 @@ EOT
     echo "TG_LINK=${TG_LINK}" >> $INFO_FILE
     
     echo -e "\n${GREEN}✅ 部署成功！程序已在后台监听端口 ${IN_PORT}${RESET}"
-    echo -e "你的初步 TG 链接是 (拿着内网端口去面板映射后，可在主菜单选 3 修改公网端口)：\n${YELLOW}${TG_LINK}${RESET}\n"
+    echo -e "你的专属 TG 链接是：\n${YELLOW}${TG_LINK}${RESET}\n"
     read -p "按回车键返回主菜单..."
 }
 
@@ -127,9 +139,9 @@ view_link() {
     echo -e "${CYAN}=========================================${RESET}"
     if [ -f "$INFO_FILE" ]; then
         source $INFO_FILE
-        echo -e "当前内网端口: ${GREEN}${IN_PORT}${RESET}"
-        echo -e "当前公网地址: ${GREEN}${PUBLIC_IP}:${OUT_PORT}${RESET}"
-        echo -e "当前伪装域名: ${GREEN}${FAKE_DOMAIN}${RESET}\n"
+        echo -e "当前内网监听端口: ${GREEN}${IN_PORT}${RESET}"
+        echo -e "当前对外公网地址: ${GREEN}${PUBLIC_IP}:${OUT_PORT}${RESET}"
+        echo -e "当前伪装域名:     ${GREEN}${FAKE_DOMAIN}${RESET}\n"
         echo -e "${YELLOW}👉 TG 一键直连链接：${RESET}"
         echo -e "${GREEN}${TG_LINK}${RESET}"
     else
@@ -143,8 +155,8 @@ modify_config() {
     clear
     if [ ! -f "$INFO_FILE" ]; then echo -e "${RED}请先安装！${RESET}"; read -p "按回车返回..."; return; fi
     source $INFO_FILE
-    echo -e "${CYAN}--- 修改 NAT 映射信息 ---${RESET}"
-    read -p "输入新【内网端口】 (回车保持 ${IN_PORT}): " NEW_IN
+    echo -e "${CYAN}--- 修改映射与配置信息 ---${RESET}"
+    read -p "输入新【内网监听端口】 (回车保持 ${IN_PORT}): " NEW_IN
     NEW_IN=${NEW_IN:-$IN_PORT}
     read -p "输入新【公网 IP】 (回车保持 ${PUBLIC_IP}): " NEW_IP
     NEW_IP=${NEW_IP:-$PUBLIC_IP}
@@ -211,12 +223,12 @@ fi
 while true; do
     clear
     echo -e "${CYAN}=========================================${RESET}"
-    echo -e "     🦇 NAT 专属 mtg v2 管理面板 🦇"
+    echo -e "     🦇 MTP 代理管理面板 (支持 VPS/NAT) 🦇"
     echo -e "${CYAN}=========================================${RESET}"
     echo -e "当前状态: $(get_status)"
     echo -e "快捷指令: ${GREEN}mtp${RESET}"
     echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${GREEN}1.${RESET} 安装 / 重装 MTP (支持无脑回车随机生成)"
+    echo -e "  ${GREEN}1.${RESET} 安装 / 重装 MTP (自动适配网络环境)"
     echo -e "  ${GREEN}2.${RESET} 查看当前 TG 链接与信息"
     echo -e "  ${GREEN}3.${RESET} 修改端口、IP与伪装域名"
     echo -e "  ${YELLOW}4.${RESET} 启动 MTP 服务"
@@ -224,7 +236,7 @@ while true; do
     echo -e "  ${RED}6.${RESET} 彻底卸载 MTP"
     echo -e "  ${CYAN}7.${RESET} 更新面板代码 (从 GitHub 同步)"
     echo -e "  ${GREEN}0.${RESET} 退出面板"
-    echo -e "  ${YELLOW}00.${RESET} 返回主菜单 (NatTools)"
+    echo -e "  ${YELLOW}00.${RESET}返回主菜单 (NooMili)"
     echo -e "${CYAN}=========================================${RESET}"
     read -p "请输入序号选择功能: " choice
     
@@ -233,7 +245,7 @@ while true; do
         4) if command -v systemctl >/dev/null 2>&1; then systemctl start mtg; else nohup /usr/local/bin/mtg run /etc/mtg.toml > /var/log/mtg.log 2>&1 & fi; echo -e "${GREEN}已启动！${RESET}"; sleep 1 ;;
         5) if command -v systemctl >/dev/null 2>&1; then systemctl stop mtg; else pkill -f "mtg run"; fi; echo -e "${RED}已停止！${RESET}"; sleep 1 ;;
         6) uninstall_mtp ;; 7) update_script ;; 0) clear; exit 0 ;;
-        00) if [ -f "/usr/local/bin/n" ]; then /usr/local/bin/n; else echo -e "${RED}未安装主控！${RESET}"; sleep 1; fi ;;
+        00) if [ -f "/usr/local/bin/n" ]; then exec /usr/local/bin/n; else echo -e "${RED}未安装主控！请先运行主控安装命令。${RESET}"; sleep 2; fi ;;
         *) echo -e "${RED}输入错误！${RESET}"; sleep 1 ;;
     esac
 done
