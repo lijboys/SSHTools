@@ -12,9 +12,9 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 PLAIN='\033[0m'
 
-if [ "$EUID" -ne 0 ]; then echo -e "${RED}Error: Please run as root!${PLAIN}"; exit 1; fi
+if [ "$EUID" -ne 0 ]; then echo -e "${RED}请使用 root 用户运行！${PLAIN}"; exit 1; fi
 
-# 强行回到主目录，防止目录报错
+# 强行回到主目录，彻底消灭 getcwd 路径报错
 cd ~
 
 # ================= 自动创建快捷键 =================
@@ -24,7 +24,6 @@ if [ ! -f "/usr/local/bin/komari" ]; then
 fi
 # ==================================================
 
-# 缓存公网IP
 if [ -z "$PUBLIC_IP" ]; then
     PUBLIC_IP=$(curl -s4m2 ifconfig.me || curl -s4m2 ipinfo.io/ip)
 fi
@@ -57,7 +56,7 @@ draw_menu() {
     
     if [ -f "/opt/komari/komari" ]; then
         echo -e "公网访问端口: ${YELLOW}${CURRENT_PORT}${PLAIN}"
-        echo -e "直连访问地址: ${CYAN}http://${PUBLIC_IP}:${CURRENT_PORT}${PLAIN} (IP直连，无需域名)"
+        echo -e "直连访问地址: ${CYAN}http://${PUBLIC_IP}:${CURRENT_PORT}${PLAIN} (无需域名)"
         
         if [ -d "/etc/nginx/sites-enabled/" ]; then
             DOMAINS=$(ls -1 /etc/nginx/sites-enabled/ 2>/dev/null | grep -v "default" | grep -v "komari-nat" | tr '\n' ' ')
@@ -72,8 +71,8 @@ draw_menu() {
     echo -e "  ${GREEN}1.${PLAIN} 安装                        ${GREEN}2.${PLAIN} 更新 (探针程序)"
     echo -e "  ${RED}3.${PLAIN} 彻底卸载                    ${YELLOW}4.${PLAIN} 查看初始凭据"
     echo -e "${BLUE}---------------------------------------${PLAIN}"
-    echo -e "  ${GREEN}5.${PLAIN} 修改面板端口 ${YELLOW}(纯 IP直连，NAT改端口专用)${PLAIN}"
-    echo -e "  ${GREEN}6.${PLAIN} 添加域名访问 ${YELLOW}(建站级，含防墙/SSL优化)${PLAIN}"
+    echo -e "  ${GREEN}5.${PLAIN} 修改面板端口 ${YELLOW}(纯 IP直连，换端口专用)${PLAIN}"
+    echo -e "  ${GREEN}6.${PLAIN} 添加域名访问 ${YELLOW}(建站级，含 CF 回源优化)${PLAIN}"
     echo -e "  ${RED}7.${PLAIN} 删除域名访问"
     echo -e "${BLUE}---------------------------------------${PLAIN}"
     echo -e "  ${CYAN}88.${PLAIN} 更新探针面板代码 (从 GitHub 同步)"
@@ -95,15 +94,8 @@ show_credentials() {
     fi
 }
 
-change_port() {
-    echo -e "\n${CYAN}--- NAT 端口接驳向导 ---${PLAIN}"
-    read -p "👉 请输入 NAT 商家分配给你的可用端口 (如 2201，直接回车则保持默认): " new_port
-    if [ -z "$new_port" ]; then 
-        echo -e "${YELLOW}已保留默认端口。${PLAIN}"
-        return
-    fi
-    
-    echo -e "${YELLOW}正在配置底层路由，接驳端口...${PLAIN}"
+apply_port_mapping() {
+    local new_port=$1
     cat > /etc/nginx/sites-available/komari-nat <<EOF
 server {
     listen $new_port;
@@ -120,16 +112,23 @@ EOF
     ln -sf /etc/nginx/sites-available/komari-nat /etc/nginx/sites-enabled/
     systemctl restart nginx
     
+    # 彻底清理之前所有可能残留的拦截规则，防止叠加死锁
+    while iptables -D INPUT -p tcp --dport 25774 -j DROP 2>/dev/null; do :; done
+    while iptables -D INPUT ! -i lo -p tcp --dport 25774 -j DROP 2>/dev/null; do :; done
+    
+    # 放行新端口
     iptables -I INPUT -p tcp --dport $new_port -j ACCEPT
-    iptables -D INPUT -p tcp --dport 25774 -j ACCEPT 2>/dev/null
-    iptables -A INPUT -p tcp --dport 25774 -j DROP
+    
+    # 终极修复：阻断外网直接访问 25774，但绝对允许本机 Nginx (lo网卡) 访问内网，防止 504 和转圈卡死！
+    iptables -A INPUT ! -i lo -p tcp --dport 25774 -j DROP
     
     echo "$new_port" > /opt/komari/.nat_port
-    echo -e "${GREEN}✅ 端口映射成功！你可以直接使用 IP+端口 访问了。${PLAIN}"
 }
 
 install_komari() {
     apt update && apt install -y curl wget sed socat nginx-light iptables
+    systemctl enable nginx --now >/dev/null 2>&1
+    
     echo -e "${YELLOW}正在拉取官方程序...${PLAIN}"
     wget -qO /tmp/komari-install.sh https://raw.githubusercontent.com/komari-monitor/komari/main/install-komari.sh
     chmod +x /tmp/komari-install.sh
@@ -144,17 +143,36 @@ install_komari() {
     show_credentials
     echo -e "${GREEN}=======================================${PLAIN}"
     
-    echo -e "\n${YELLOW}💡 检测到你可能在使用 NAT 小鸡，默认端口 25774 无法直接访问。${PLAIN}"
-    read -p "是否需要立即修改面板端口？[Y/n]: " need_port
-    if [[ "$need_port" == "Y" || "$need_port" == "y" || "$need_port" == "" ]]; then
-        change_port
-        CURRENT_PORT=$(get_current_port)
-        echo -e "\n${CYAN}🎉 全部配置完毕！现在请在浏览器打开：${PLAIN}"
-        echo -e "${YELLOW}http://${PUBLIC_IP}:${CURRENT_PORT}${PLAIN}"
+    echo -e "\n${YELLOW}💡 提示：如果你的机器可以正常使用默认的 25774 端口，请直接回车。${PLAIN}"
+    read -p "👉 若需修改访问端口(如 2250)，请在此输入 (回车保持 25774): " new_port
+    
+    if [ -n "$new_port" ] && [ "$new_port" != "25774" ]; then
+        echo -e "${YELLOW}正在配置底层 Nginx 路由，接驳端口至 $new_port...${PLAIN}"
+        apply_port_mapping "$new_port"
+        echo -e "${GREEN}✅ 端口映射成功！${PLAIN}"
+    else
+        echo "25774" > /opt/komari/.nat_port
+        echo -e "${GREEN}✅ 已保持默认端口 25774。${PLAIN}"
     fi
     
+    CURRENT_PORT=$(get_current_port)
+    echo -e "\n${CYAN}🎉 全部配置完毕！现在请在浏览器打开：${PLAIN}"
+    echo -e "${YELLOW}http://${PUBLIC_IP}:${CURRENT_PORT}${PLAIN}"
     echo ""
     read -p "按回车返回菜单..."
+}
+
+change_port() {
+    echo -e "\n${CYAN}--- 修改面板端口向导 ---${PLAIN}"
+    read -p "👉 请输入新的公网访问端口 (直接回车则取消修改): " new_port
+    if [ -z "$new_port" ]; then 
+        return
+    fi
+    
+    echo -e "${YELLOW}正在配置底层路由与安全组规则，接驳端口...${PLAIN}"
+    apply_port_mapping "$new_port"
+    echo -e "${GREEN}✅ 端口修改成功！你可以直接使用 IP+端口 访问了。${PLAIN}"
+    read -p "按回车返回..."
 }
 
 add_domain() {
@@ -178,7 +196,7 @@ server {
     }
 }
 EOF
-        echo -e "${GREEN}CF回源配置完成！请去 CF 网页版面板开启小黄云，并确保 Origin Rule 指向你小鸡的 80 或映射端口。${PLAIN}"
+        echo -e "${GREEN}CF网页版配置提示：配置完成！请去 CF 网页版开启小黄云，并确保 Origin Rule 指向小鸡的 80 或映射端口。${PLAIN}"
     else
         echo -e "${YELLOW}正在配置 SSL...${PLAIN}"
     fi
@@ -217,8 +235,10 @@ while true; do
            chmod +x /tmp/komari-install.sh
            echo "3" | bash /tmp/komari-install.sh
            rm -f /tmp/komari-install.sh
+           # 清理咱们生成的 Nginx 垃圾文件和 iptables 拦截规则
            rm -f /etc/nginx/sites-enabled/komari-nat /etc/nginx/sites-available/komari-nat
            systemctl restart nginx 2>/dev/null
+           while iptables -D INPUT ! -i lo -p tcp --dport 25774 -j DROP 2>/dev/null; do :; done
            rm -f /usr/local/bin/komari
            echo -e "${GREEN}✅ 彻底卸载成功！面板即将自动关闭...${PLAIN}"
            sleep 2; exit 0 
