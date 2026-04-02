@@ -40,7 +40,7 @@ draw_menu() {
     echo -e "官方介绍：https://github.com/komari-monitor/komari"
     echo -e "${BLUE}---------------------------------------${PLAIN}"
     echo -e "  ${GREEN}1.${PLAIN} 安装                        ${GREEN}2.${PLAIN} 更新 (探针程序)"
-    echo -e "  ${RED}3.${PLAIN} 卸载                        ${YELLOW}4.${PLAIN} 查看初始凭据"
+    echo -e "  ${RED}3.${PLAIN} 彻底卸载                    ${YELLOW}4.${PLAIN} 查看初始凭据"
     echo -e "${BLUE}---------------------------------------${PLAIN}"
     echo -e "  ${GREEN}5.${PLAIN} 添加域名访问 (含SSL/CF回源)   ${RED}6.${PLAIN} 删除域名访问"
     echo -e "  ${GREEN}7.${PLAIN} 允许 IP+端口 访问             ${RED}8.${PLAIN} 阻止 IP+端口 访问"
@@ -135,8 +135,18 @@ while true; do
            read -p "升级完成，按回车返回..."
            ;;
         3) 
-           systemctl stop komari && rm -rf /opt/komari
-           echo "卸载成功" ; sleep 2 ;;
+           clear
+           echo -e "${RED}正在彻底卸载 Komari 探针及管理面板...${PLAIN}"
+           # 调用官方卸载脚本
+           wget -qO /tmp/komari-install.sh https://raw.githubusercontent.com/komari-monitor/komari/main/install-komari.sh
+           chmod +x /tmp/komari-install.sh
+           echo "3" | bash /tmp/komari-install.sh
+           rm -f /tmp/komari-install.sh
+           # 清理我们自己生成的面板文件
+           rm -f /usr/local/bin/komari
+           echo -e "${GREEN}✅ 彻底卸载成功！面板即将自动关闭...${PLAIN}"
+           sleep 2; exit 0 
+           ;;
         4) 
            journalctl -u komari -n 200 | grep -E "Username:|Password:"
            read -p "回车继续..." ;;
