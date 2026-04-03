@@ -14,7 +14,6 @@ PLAIN='\033[0m'
 
 if [ "$EUID" -ne 0 ]; then echo -e "${RED}请使用 root 用户运行！${PLAIN}"; exit 1; fi
 
-# 强行回到主目录，彻底消灭 getcwd 路径报错
 cd ~
 
 # ================= 自动创建快捷键 =================
@@ -69,7 +68,7 @@ draw_menu() {
     echo -e "官方介绍：https://github.com/komari-monitor/komari"
     echo -e "${BLUE}---------------------------------------${PLAIN}"
     echo -e "  ${GREEN}1.${PLAIN} 安装                        ${GREEN}2.${PLAIN} 更新 (探针程序)"
-    echo -e "  ${RED}3.${PLAIN} 彻底卸载                    ${YELLOW}4.${PLAIN} 查看初始凭据"
+    echo -e "  ${RED}3.${PLAIN} 彻底卸载                    ${YELLOW}4.${PLAIN} 查看/修改凭据备忘"
     echo -e "${BLUE}---------------------------------------${PLAIN}"
     echo -e "  ${GREEN}5.${PLAIN} 修改面板端口 ${YELLOW}(纯 IP直连，换端口专用)${PLAIN}"
     echo -e "  ${GREEN}6.${PLAIN} 添加域名访问 ${YELLOW}(建站级，含 CF 回源优化)${PLAIN}"
@@ -83,14 +82,41 @@ draw_menu() {
 }
 
 show_credentials() {
-    LOG_LINE=$(journalctl -u komari -n 200 | grep -E "Username:|Password:" | tail -n 1)
-    if [ -n "$LOG_LINE" ]; then
-        USERNAME=$(echo "$LOG_LINE" | sed -n 's/.*Username: \([^ ,]*\).*/\1/p')
-        PASSWORD=$(echo "$LOG_LINE" | sed -n 's/.*Password: \([^ ]*\).*/\1/p')
-        echo -e "👉 初始账号: ${GREEN}${USERNAME}${PLAIN}"
-        echo -e "👉 初始密码: ${YELLOW}${PASSWORD}${PLAIN}"
+    echo -e "${BLUE}=======================================${PLAIN}"
+    # 优先检查用户是否存过自定义密码
+    if [ -f "/opt/komari/.admin_info" ]; then
+        source /opt/komari/.admin_info
+        echo -e "👉 当前记录账号: ${GREEN}${CUSTOM_USER}${PLAIN}"
+        echo -e "👉 当前记录密码: ${YELLOW}${CUSTOM_PASS}${PLAIN}"
+        echo -e "${CYAN}(此为您在此脚本中手动保存的备忘凭据)${PLAIN}"
     else
-        echo -e "${YELLOW}日志中暂未找到账号信息，密码获取稍有延迟，请稍后使用选项 4 查看。${PLAIN}"
+        # 没存过，就去日志里捞初始密码
+        LOG_LINE=$(journalctl -u komari --no-pager | grep -E "Username:|Password:" | tail -n 1)
+        if [ -n "$LOG_LINE" ]; then
+            USERNAME=$(echo "$LOG_LINE" | sed -n 's/.*Username: \([^ ,]*\).*/\1/p')
+            PASSWORD=$(echo "$LOG_LINE" | sed -n 's/.*Password: \([^ ]*\).*/\1/p')
+            echo -e "👉 初始账号: ${GREEN}${USERNAME}${PLAIN}"
+            echo -e "👉 初始密码: ${YELLOW}${PASSWORD}${PLAIN}"
+            echo -e "${RED}(注意：这只是安装时的初始密码，如果你在网页改了，请及时记录在下方！)${PLAIN}"
+        else
+            echo -e "${YELLOW}日志中暂未找到初始账号信息（可能是导入了旧数据）。${PLAIN}"
+        fi
+    fi
+    echo -e "${BLUE}=======================================${PLAIN}"
+    
+    echo ""
+    read -p "是否需要在此脚本中更新/记录您的最新密码备忘？[y/N]: " update_cred
+    if [[ "$update_cred" == "y" || "$update_cred" == "Y" ]]; then
+        read -p "请输入您在网页端设置的新账号 (如 admin): " new_u
+        read -p "请输入您在网页端设置的新密码: " new_p
+        if [ -n "$new_u" ] && [ -n "$new_p" ]; then
+            echo "CUSTOM_USER=\"$new_u\"" > /opt/komari/.admin_info
+            echo "CUSTOM_PASS=\"$new_p\"" >> /opt/komari/.admin_info
+            chmod 600 /opt/komari/.admin_info
+            echo -e "${GREEN}✅ 备忘凭据已安全保存！以后按 4 将直接显示此新密码。${PLAIN}"
+        else
+            echo -e "${RED}输入为空，取消保存。${PLAIN}"
+        fi
     fi
 }
 
@@ -100,6 +126,9 @@ apply_port_mapping() {
 server {
     listen $new_port;
     server_name _;
+    # 永久修复导入备份失败的 Bug：允许最大上传 100MB 的文件
+    client_max_body_size 100M;
+    
     location / {
         proxy_pass http://127.0.0.1:25774;
         proxy_http_version 1.1;
@@ -112,14 +141,10 @@ EOF
     ln -sf /etc/nginx/sites-available/komari-nat /etc/nginx/sites-enabled/
     systemctl restart nginx
     
-    # 彻底清理之前所有可能残留的拦截规则，防止叠加死锁
     while iptables -D INPUT -p tcp --dport 25774 -j DROP 2>/dev/null; do :; done
     while iptables -D INPUT ! -i lo -p tcp --dport 25774 -j DROP 2>/dev/null; do :; done
     
-    # 放行新端口
     iptables -I INPUT -p tcp --dport $new_port -j ACCEPT
-    
-    # 终极修复：阻断外网直接访问 25774，但绝对允许本机 Nginx (lo网卡) 访问内网，防止 504 和转圈卡死！
     iptables -A INPUT ! -i lo -p tcp --dport 25774 -j DROP
     
     echo "$new_port" > /opt/komari/.nat_port
@@ -141,7 +166,6 @@ install_komari() {
     echo -e "${GREEN}✅ 探针核心安装完成！正在提取初始账号信息...${PLAIN}"
     sleep 3
     show_credentials
-    echo -e "${GREEN}=======================================${PLAIN}"
     
     echo -e "\n${YELLOW}💡 提示：如果你的机器可以正常使用默认的 25774 端口，请直接回车。${PLAIN}"
     read -p "👉 若需修改访问端口(如 2250)，请在此输入 (回车保持 25774): " new_port
@@ -186,6 +210,7 @@ add_domain() {
 server {
     listen 80;
     server_name ${domain};
+    client_max_body_size 100M;
     location / {
         proxy_pass http://127.0.0.1:25774;
         proxy_http_version 1.1;
@@ -235,18 +260,16 @@ while true; do
            chmod +x /tmp/komari-install.sh
            echo "3" | bash /tmp/komari-install.sh
            rm -f /tmp/komari-install.sh
-           # 清理咱们生成的 Nginx 垃圾文件和 iptables 拦截规则
            rm -f /etc/nginx/sites-enabled/komari-nat /etc/nginx/sites-available/komari-nat
            systemctl restart nginx 2>/dev/null
            while iptables -D INPUT ! -i lo -p tcp --dport 25774 -j DROP 2>/dev/null; do :; done
            rm -f /usr/local/bin/komari
+           rm -f /opt/komari/.admin_info /opt/komari/.nat_port
            echo -e "${GREEN}✅ 彻底卸载成功！面板即将自动关闭...${PLAIN}"
            sleep 2; exit 0 
            ;;
         4) 
-           echo -e "${BLUE}=======================================${PLAIN}"
            show_credentials
-           echo -e "${BLUE}=======================================${PLAIN}"
            read -p "回车继续..." ;;
         5) change_port ;;
         6) add_domain ;;
