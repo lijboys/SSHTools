@@ -74,14 +74,11 @@ install_mtp() {
     echo ""
     # 防呆设计：回车为空或输入 1，一律走 NAT 逻辑
     if [ -z "$net_choice" ] || [ "$net_choice" == "1" ]; then
-        echo -e "${YELLOW}💡 提示: NAT 小鸡必须配置外网映射端口，否则 TG 无法连接。${RESET}"
-        read -p "👉 1. 请输入商家分配的【公网/外网可用端口】: " OUT_PORT
-        if [ -z "$OUT_PORT" ]; then
-            echo -e "${RED}错误：NAT 机器必须手动输入外网可用端口！安装中止。${RESET}"
-            exit 1
-        fi
+        echo -e "${YELLOW}💡 提示: 大部分 NAT 支持自定义映射端口，不支持的请手动输入。${RESET}"
+        read -p "👉 1. 请输入【公网/外网可用端口】(回车默认 10086): " OUT_PORT
+        OUT_PORT=${OUT_PORT:-10086}
         
-        read -p "👉 2. 请输入小鸡本地的【内网监听端口】(回车默认与外网一致: $OUT_PORT): " IN_PORT
+        read -p "👉 2. 请输入小鸡【内网监听端口】(回车默认与外网一致: $OUT_PORT): " IN_PORT
         IN_PORT=${IN_PORT:-$OUT_PORT}
         
         read -p "👉 3. 请输入商家【公网 IPv4 地址】(回车尝试自动获取: $AUTO_IP): " PUBLIC_IP
