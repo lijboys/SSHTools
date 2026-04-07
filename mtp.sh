@@ -2,7 +2,7 @@
 
 # ============================================
 # MTP 代理管理面板
-# Version: v1.1.0
+# Version: v1.1.1
 # ============================================
 
 GREEN="\033[32m"
@@ -12,7 +12,7 @@ CYAN="\033[36m"
 BLUE="\033[34m"
 RESET="\033[0m"
 
-SCRIPT_VERSION="v1.1.0"
+SCRIPT_VERSION="v1.1.1"
 MTG_VERSION="2.1.7"
 
 CONFIG_FILE="/etc/mtg.toml"
@@ -236,32 +236,56 @@ download_mtg() {
 
 choose_and_generate_secret() {
     echo ""
-    echo -e "${CYAN}--- 请选择 FakeTLS 伪装域名 (藏木于林) ---${RESET}"
-    echo -e "  ${GREEN}1.${RESET} cn.bing.com          ${GREEN}2.${RESET} itunes.apple.com"
-    echo -e "  ${GREEN}3.${RESET} www.cloudflare.com   ${GREEN}4.${RESET} gateway.icloud.com"
-    echo -e "  ${GREEN}5.${RESET} aws.amazon.com       ${GREEN}6.${RESET} cdn.jsdelivr.net"
-    echo -e "  ${GREEN}7.${RESET} www.wechat.com       ${GREEN}8.${RESET} update.microsoft.com"
-    echo -e "  ${YELLOW}9.${RESET} 自定义伪装域名 (推荐填自己的域名)"
-    echo -e "${CYAN}-----------------------------------------${RESET}"
+    echo -e "${CYAN}================ FakeTLS 伪装域名选择 ================${RESET}"
+    echo -e "${YELLOW}提示：若你有自己的真实域名，强烈建议优先使用自定义域名。${RESET}"
+    echo -e "${CYAN}------------------------------------------------------${RESET}"
+
+    printf "  ${GREEN}%-4s${RESET} %-22s ${YELLOW}%-18s${RESET}  ${GREEN}%-4s${RESET} %-22s ${YELLOW}%s${RESET}\n" \
+        "1." "www.cloudflare.com" "(通用稳妥/推荐)" \
+        "2." "www.microsoft.com" "(国际通用/推荐)"
+
+    printf "  ${GREEN}%-4s${RESET} %-22s ${YELLOW}%-18s${RESET}  ${GREEN}%-4s${RESET} %-22s ${YELLOW}%s${RESET}\n" \
+        "3." "www.apple.com" "(苹果生态/推荐)" \
+        "4." "www.bing.com" "(中文常见/推荐)"
+
+    printf "  ${GREEN}%-4s${RESET} %-22s ${YELLOW}%-18s${RESET}  ${GREEN}%-4s${RESET} %-22s ${YELLOW}%s${RESET}\n" \
+        "5." "gateway.icloud.com" "(服务风格)" \
+        "6." "cdn.jsdelivr.net" "(CDN风格)"
+
+    printf "  ${GREEN}%-4s${RESET} %-22s ${YELLOW}%-18s${RESET}  ${GREEN}%-4s${RESET} %-22s ${YELLOW}%s${RESET}\n" \
+        "7." "www.wechat.com" "(国内常见)" \
+        "8." "www.dropbox.com" "(网盘风格)"
+
+    printf "  ${GREEN}%-4s${RESET} %-22s ${YELLOW}%-18s${RESET}  ${YELLOW}%-4s${RESET} %-22s ${RED}%s${RESET}\n" \
+        "9." "onedrive.live.com" "(微软网盘)" \
+        "10." "自定义伪装域名" "(强烈推荐)"
+
+    echo -e "${CYAN}------------------------------------------------------${RESET}"
     read -p "请输入序号选择 (回车默认选 1): " domain_choice
 
     case "$domain_choice" in
-        2) FAKE_DOMAIN="itunes.apple.com" ;;
-        3) FAKE_DOMAIN="www.cloudflare.com" ;;
-        4) FAKE_DOMAIN="gateway.icloud.com" ;;
-        5) FAKE_DOMAIN="aws.amazon.com" ;;
-        6) FAKE_DOMAIN="cdn.jsdelivr.net" ;;
-        7) FAKE_DOMAIN="www.wechat.com" ;;
-        8) FAKE_DOMAIN="update.microsoft.com" ;;
-        9)
+        2)  FAKE_DOMAIN="www.microsoft.com" ;;
+        3)  FAKE_DOMAIN="www.apple.com" ;;
+        4)  FAKE_DOMAIN="www.bing.com" ;;
+        5)  FAKE_DOMAIN="gateway.icloud.com" ;;
+        6)  FAKE_DOMAIN="cdn.jsdelivr.net" ;;
+        7)  FAKE_DOMAIN="www.wechat.com" ;;
+        8)  FAKE_DOMAIN="www.dropbox.com" ;;
+        9)  FAKE_DOMAIN="onedrive.live.com" ;;
+        10)
             read -p "👉 请输入自定义【FakeTLS 伪装域名】: " FAKE_DOMAIN
-            FAKE_DOMAIN=${FAKE_DOMAIN:-cn.bing.com}
+            FAKE_DOMAIN=${FAKE_DOMAIN:-www.cloudflare.com}
+
             if ! is_valid_domain "$FAKE_DOMAIN"; then
                 echo -e "${RED}❌ 域名格式不正确！${RESET}"
                 return 1
             fi
+
+            if ! getent ahosts "$FAKE_DOMAIN" >/dev/null 2>&1; then
+                echo -e "${YELLOW}⚠️ 提示：该域名当前无法解析，仍将继续尝试生成密钥。${RESET}"
+            fi
             ;;
-        *) FAKE_DOMAIN="cn.bing.com" ;;
+        *)  FAKE_DOMAIN="www.cloudflare.com" ;;
     esac
 
     if [ ! -x "/usr/local/bin/mtg" ]; then
