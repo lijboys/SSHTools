@@ -2,7 +2,7 @@
 
 <div align="center">
   
-[🦇 MTP 代理搭建教程](./MD/MTP.md) | [📊 Komari 探针部署教程](./MD/komari.md) | [☁️ CF Worker 短链搭建教程](./MD/cf.md)
+[🦇 MTP 代理搭建教程](./MD/MTP.md) | [📊 Komari 探针部署教程](./MD/komari.md) | [📡 SBox 代理部署教程](./MD/sbox.md) | [☁️ CF Worker 短链搭建教程](./MD/cf.md)
 
 </div>
 
