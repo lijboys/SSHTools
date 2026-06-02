@@ -3,17 +3,9 @@
 # =========================================================
 #  NooMili - Komari 专用运维脚本
 #  GitHub: https://github.com/lijboys/SSHTools
-#  Version: v1.2.0
-# =========================================================
+#  Version: v1.4.0
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-PLAIN='\033[0m'
-
-SCRIPT_VERSION="v1.2.0"
+SCRIPT_VERSION="v1.4.0"
 SCRIPT_URL="https://raw.githubusercontent.com/lijboys/SSHTools/main/komari.sh"
 
 INSTALLER_URL="https://raw.githubusercontent.com/komari-monitor/komari/main/install-komari.sh"
@@ -205,43 +197,37 @@ draw_menu() {
     CHECK_IPV6=$(get_public_ipv6_cached)
 
     clear
-    echo -e "${BLUE}=======================================${PLAIN}"
+    echo -e "${CYAN}=======================================${PLAIN}"
     echo -e "       📊 Komari 探针管理面板 ${GREEN}${SCRIPT_VERSION}${PLAIN}"
-    echo -e "${BLUE}=======================================${PLAIN}"
-    echo -e "当前状态: komari $STATUS"
-    echo -e "服务状态: $(get_komari_service_status)"
+    echo -e "${CYAN}=======================================${PLAIN}"
+    echo -e "状态: komari ${STATUS}  服务: $(get_komari_service_status)"
+    echo -e "端口: ${YELLOW}${CURRENT_PORT}${PLAIN}"
 
     if [ -d "$INSTALL_DIR" ]; then
-        echo -e "公网访问端口: ${YELLOW}${CURRENT_PORT}${PLAIN}"
         if [ -n "$CHECK_IPV4" ]; then
-            echo -e "直连 IPv4:     ${CYAN}http://${CHECK_IPV4}:${CURRENT_PORT}${PLAIN}"
-        else
-            echo -e "直连 IPv4:     ${YELLOW}获取失败${PLAIN}"
+            echo -e "IPv4: ${CYAN}http://${CHECK_IPV4}:${CURRENT_PORT}${PLAIN}"
         fi
         if [ -n "$CHECK_IPV6" ]; then
-            echo -e "直连 IPv6:     ${CYAN}http://[${CHECK_IPV6}]:${CURRENT_PORT}${PLAIN}"
+            echo -e "IPv6: ${CYAN}http://[${CHECK_IPV6}]:${CURRENT_PORT}${PLAIN}"
         fi
-
         if [ -d "/etc/nginx/sites-enabled/" ]; then
             DOMAINS=$(ls -1 /etc/nginx/sites-enabled/ 2>/dev/null | grep -v "default" | grep -v "^komari-nat$" | tr '\n' ' ')
             if [ -n "$DOMAINS" ]; then
-                echo -e "已绑定域名:   ${GREEN}${DOMAINS}${PLAIN}"
+                echo -e "域名: ${GREEN}${DOMAINS}${PLAIN}"
             fi
         fi
     fi
 
-    echo -e "官方介绍：https://github.com/komari-monitor/komari"
-    echo -e "${BLUE}---------------------------------------${PLAIN}"
-    echo -e "  ${GREEN}1.${PLAIN} 安装                        ${GREEN}2.${PLAIN} 更新 (探针程序)"
-    echo -e "  ${RED}3.${PLAIN} 彻底卸载                    ${YELLOW}4.${PLAIN} 查看/修改凭据备忘"
-    echo -e "${BLUE}---------------------------------------${PLAIN}"
-    echo -e "  ${GREEN}5.${PLAIN} 修改面板端口 ${YELLOW}(纯 IP直连，换端口专用)${PLAIN}"
-    echo -e "  ${GREEN}6.${PLAIN} 添加域名访问"
-    echo -e "  ${RED}7.${PLAIN} 删除域名访问"
-    echo -e "${BLUE}---------------------------------------${PLAIN}"
-    echo -e "  ${CYAN}8.${PLAIN} 查看 Komari 服务日志"
-    echo -e "  ${CYAN}88.${PLAIN} 更新探针面板代码 (从 GitHub 同步)"
-    echo -e "  ${YELLOW}9.${PLAIN} 返回主菜单 (NooMili)"
+    echo -e "${GREEN}--- 部署 ---${PLAIN}"
+    echo -e "  ${GREEN}1.${PLAIN} 安装                ${GREEN}2.${PLAIN} 更新探针程序"
+    echo -e "  ${YELLOW}4.${PLAIN} 查看/修改凭据备忘"
+    echo -e "${YELLOW}--- 网络 ---${PLAIN}"
+    echo -e "  ${GREEN}5.${PLAIN} 修改端口           ${GREEN}6.${PLAIN} 添加域名"
+    echo -e "  ${RED}7.${PLAIN} 删除域名"
+    echo -e "${BLUE}--- 维护 ---${PLAIN}"
+    echo -e "  ${CYAN}8.${PLAIN} 查看日志           ${CYAN}88.${PLAIN} 更新面板代码"
+    echo -e "  ${RED}3.${PLAIN} 彻底卸载           ${GREEN}0.${PLAIN} 退出"
+    echo -e "  ${YELLOW}9.${PLAIN} 返回主菜单"
     echo -e "  ${GREEN}0.${PLAIN} 退出脚本"
     echo -e "${BLUE}=======================================${PLAIN}"
     echo -n " 请输入你的选择: "
@@ -502,17 +488,16 @@ uninstall_komari() {
 
 change_port() {
     echo -e "\n${CYAN}--- 修改面板端口向导 ---${PLAIN}"
-    read -p "👉 请输入新的公网访问端口 (直接回车则取消修改): " new_port
-
-    if [ -z "$new_port" ]; then
-        return
-    fi
-
-    if ! is_valid_port "$new_port"; then
-        echo -e "${RED}❌ 端口无效！${PLAIN}"
-        pause
-        return
-    fi
+    while true; do
+        read -p "👉 请输入新的公网访问端口 (直接回车或输入 0 则取消): " new_port
+        if [ -z "$new_port" ] || [ "$new_port" = "0" ]; then
+            return
+        fi
+        if is_valid_port "$new_port"; then
+            break
+        fi
+        echo -e "${RED}❌ 端口无效 (1-65535)！${PLAIN}"
+    done
 
     echo -e "${YELLOW}正在配置底层路由与安全规则，接驳端口...${PLAIN}"
     if apply_port_mapping "$new_port"; then
@@ -526,12 +511,14 @@ change_port() {
 add_domain() {
     ensure_nginx_dirs
 
-    read -p "请输入域名: " domain
-    if ! is_valid_domain "$domain"; then
-        echo -e "${RED}❌ 域名格式不正确！${PLAIN}"
-        pause
-        return
-    fi
+    while true; do
+        read -p "请输入域名 (或输入 0 取消): " domain
+        [ "$domain" = "0" ] && return
+        if is_valid_domain "$domain"; then
+            break
+        fi
+        echo -e "${RED}❌ 域名格式不正确 (如 example.com)！${PLAIN}"
+    done
 
     echo -e "选择模式:"
     echo -e "  ${GREEN}1.${PLAIN} 普通域名反代"
@@ -648,9 +635,12 @@ update_panel() {
         if bash -n "$tmp_file" 2>/dev/null; then
             mv "$tmp_file" /usr/local/bin/komari
             chmod +x /usr/local/bin/komari
-            echo -e "${GREEN}✅ 探针面板更新完成！即将重启面板...${PLAIN}"
-            sleep 2
-            exec /usr/local/bin/komari
+            echo -e "${GREEN}✅ 探针面板更新完成！正在重启...${PLAIN}"
+            sleep 1
+            exec /usr/local/bin/komari 2>/dev/null || {
+                echo -e "${YELLOW}⚠ auto-restart 失败，请手动输入 komari${PLAIN}"
+                exit 0
+            }
         else
             rm -f "$tmp_file"
             echo -e "${RED}❌ 新脚本语法校验失败，已取消更新！${PLAIN}"

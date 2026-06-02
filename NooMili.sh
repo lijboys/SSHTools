@@ -3,15 +3,15 @@ cat > /usr/local/bin/n <<'EOF'
 
 # ============================================
 # SSHTools 工具箱 - NAT/VPS 多功能管理面板
-# Version: v2.4.0
-# ============================================
-...
-SCRIPT_VERSION="v2.4.0"
+# Version: v2.6.0
+
+SCRIPT_VERSION="v2.6.0"
 
 NAT_URL="https://raw.githubusercontent.com/lijboys/SSHTools/refs/heads/main/NooMili.sh"
 MTP_URL="https://raw.githubusercontent.com/lijboys/SSHTools/refs/heads/main/mtp.sh"
 KOMARI_URL="https://raw.githubusercontent.com/lijboys/SSHTools/refs/heads/main/komari.sh"
 SOCKS5_URL="https://raw.githubusercontent.com/lijboys/SSHTools/refs/heads/main/s5.sh"
+SBOX_URL="https://raw.githubusercontent.com/lijboys/SSHTools/refs/heads/main/sbox.sh"
 
 IP_FILE="/etc/.noomili_ip"
 IP_TYPE_FILE="/etc/.noomili_ip_type"
@@ -437,6 +437,23 @@ launch_s5() {
     fi
 }
 
+launch_sbox() {
+    if [ ! -f "/usr/local/bin/sbox" ]; then
+        echo -e "${YELLOW}首次进入，正在拉取 SBox 代理面板...${RESET}"
+        local tmp_sh=$(mktemp)
+        if curl -fsSL --connect-timeout 15 "${SBOX_URL}" -o "$tmp_sh" 2>/dev/null; then
+            bash "$tmp_sh"
+            rm -f "$tmp_sh"
+        else
+            rm -f "$tmp_sh"
+            echo -e "${RED}❌ 下载失败，请检查网络后重试！${RESET}"
+            pause
+        fi
+    else
+        /usr/local/bin/sbox
+    fi
+}
+
 launch_lucky() {
     clear
     echo -e "${CYAN}=========================================${RESET}"
@@ -499,8 +516,8 @@ sys_bar() {
 }
 
 sub_status() {
-    local mtp_s="-" komari_s="-" s5_s="-"
-    local mtp_c="${CYAN}" komari_c="${CYAN}" s5_c="${CYAN}"
+    local mtp_s="-" komari_s="-" s5_s="-" sbox_s="-"
+    local mtp_c="${CYAN}" komari_c="${CYAN}" s5_c="${CYAN}" sbox_c="${CYAN}"
 
     if [ -f "/usr/local/bin/mtp" ] && [ -x "/usr/local/bin/mtg" ]; then
         if systemctl is-active --quiet mtg 2>/dev/null || pgrep -f "mtg run" >/dev/null 2>&1; then
@@ -526,7 +543,15 @@ sub_status() {
         fi
     fi
 
-    echo -e "服务: ${CYAN}MTP${RESET}${mtp_c}${mtp_s}${RESET} ${CYAN}Komari${RESET}${komari_c}${komari_s}${RESET} ${CYAN}S5${RESET}${s5_c}${s5_s}${RESET}"
+    if [ -f "/usr/local/bin/sbox" ] && [ -x "/usr/local/bin/sing-box" ]; then
+        if systemctl is-active --quiet sbox-hy2 2>/dev/null || systemctl is-active --quiet sbox-tuic 2>/dev/null || systemctl is-active --quiet sbox-anytls 2>/dev/null; then
+            sbox_s="●" sbox_c="${GREEN}"
+        else
+            sbox_s="○" sbox_c="${YELLOW}"
+        fi
+    fi
+
+    echo -e "服务: ${CYAN}MTP${RESET}${mtp_c}${mtp_s}${RESET} ${CYAN}Komari${RESET}${komari_c}${komari_s}${RESET} ${CYAN}S5${RESET}${s5_c}${s5_s}${RESET} ${CYAN}SBox${RESET}${sbox_c}${sbox_s}${RESET}"
 }
 
 manage_swap() {
@@ -773,6 +798,16 @@ proc_guard() {
         fi
     fi
 
+    if [ -f "/usr/local/bin/sbox" ] && [ -x "/usr/local/bin/sing-box" ]; then
+        has_any="1"
+        if systemctl is-active --quiet sbox-hy2 2>/dev/null || systemctl is-active --quiet sbox-tuic 2>/dev/null || systemctl is-active --quiet sbox-anytls 2>/dev/null; then
+            echo -e "  ${CYAN}SBox${RESET}      ${GREEN}运行中${RESET} (Restart=always)"
+        else
+            echo -e "  ${CYAN}SBox${RESET}      ${RED}已停止${RESET}"
+            cron_needed="1"
+        fi
+    fi
+
     if [ -z "$has_any" ]; then
         echo -e "${YELLOW}未检测到任何已安装的服务${RESET}"
         pause; return
@@ -818,6 +853,8 @@ proc_guard() {
 */5 * * * * [ ! -d /opt/komari ] && exit 0; { command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet komari; } || pgrep -f komari >/dev/null 2>&1 || { command -v systemctl >/dev/null 2>&1 && systemctl start komari; }
 # S5 (dante or gost)
 */5 * * * * [ ! -f /etc/s5_info.txt ] && exit 0; { command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet danted; } || { command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet gost-s5; } || rc-service danted status >/dev/null 2>&1 || pgrep -f sockd >/dev/null 2>&1 || { command -v systemctl >/dev/null 2>&1 && { systemctl start danted; systemctl start gost-s5; }; } || { [ -f /etc/init.d/danted ] && rc-service danted start; }
+# SBox (hy2/tuic/anytls)
+*/5 * * * * [ ! -x /usr/local/bin/sing-box ] && exit 0; for s in sbox-hy2 sbox-tuic sbox-anytls; do systemctl is-active --quiet "$s" 2>/dev/null || systemctl start "$s" 2>/dev/null; done
 GUARD_CRON
             crontab /tmp/sshtools_cron 2>/dev/null
             rm -f /tmp/sshtools_cron
@@ -833,6 +870,7 @@ GUARD_CRON
             [ -f "/usr/local/bin/mtp" ] && ! systemctl is-active --quiet mtg 2>/dev/null && ! pgrep -f "mtg run" >/dev/null 2>&1 && { systemctl start mtg 2>/dev/null || true; echo "  MTP 已重启"; }
             [ -d "/opt/komari" ] && ! systemctl is-active --quiet komari 2>/dev/null && { systemctl start komari 2>/dev/null || true; echo "  Komari 已重启"; }
             [ -f "/etc/s5_info.txt" ] && ! systemctl is-active --quiet danted 2>/dev/null && ! systemctl is-active --quiet gost-s5 2>/dev/null && { systemctl start danted 2>/dev/null; systemctl start gost-s5 2>/dev/null; echo "  S5 已重启"; }
+            [ -x "/usr/local/bin/sing-box" ] && { for s in sbox-hy2 sbox-tuic sbox-anytls; do systemctl is-active --quiet "$s" 2>/dev/null || systemctl start "$s" 2>/dev/null; done; echo "  SBox 已检查"; }
             echo -e "${GREEN}✅ 完成${RESET}"
             ;;
     esac
@@ -848,9 +886,12 @@ update_nat() {
         if bash -n "$tmp_file" 2>/dev/null; then
             mv "$tmp_file" /usr/local/bin/n
             chmod +x /usr/local/bin/n
-            echo -e "${GREEN}✅ 更新成功！即将重启...${RESET}"
-            sleep 2
-            exec /usr/local/bin/n
+            echo -e "${GREEN}✅ 更新成功！正在重启面板...${RESET}"
+            sleep 1
+            exec /usr/local/bin/n 2>/dev/null || {
+                echo -e "${YELLOW}⚠ auto-restart 失败，请手动输入 n${RESET}"
+                exit 0
+            }
         else
             rm -f "$tmp_file"
             echo -e "${RED}❌ 下载的脚本有语法错误，已取消更新！${RESET}"
@@ -917,28 +958,30 @@ while true; do
     echo -e "${CYAN}| . \\\` |/ _ \\ / _ \\| |\\/| | | | | ${RESET}"
     echo -e "${CYAN}| |\\  | (_) | (_) | |  | | | | | ${RESET}"
     echo -e "${CYAN}\\_| \\_/\\___/ \\___/\\_|  |_/_|_|_| ${RESET}"
-    echo -e "${CYAN}=========================================${RESET}"
-    echo -e " SSHTools工具箱 ${GREEN}${SCRIPT_VERSION}${RESET}"
-    echo -e " 命令行输入 ${YELLOW}n${RESET} 可快速启动脚本"
-    echo -e "${CYAN}--- 系统概况 ---${RESET}"
+    echo -e "${CYAN}══════════════════════════════════════${RESET}"
+    echo -e "  ${GREEN}░ SSHTools 工具箱${RESET}  ${YELLOW}${SCRIPT_VERSION}${RESET}  ${CYAN}快捷指令:${RESET} ${GREEN}n${RESET}"
+    echo -e "${CYAN}══════════════════════════════════════${RESET}"
+    echo -e " ${YELLOW}▸ 系统概况${RESET}"
     sys_bar
     sub_status
-    echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${GREEN}1.${RESET} 系统信息查询    ${GREEN}2.${RESET} 系统更新"
-    echo -e "  ${GREEN}3.${RESET} 系统清理        ${GREEN}4.${RESET} 📇 NAT 信息卡"
-    echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${GREEN}5.${RESET} MTP 代理面板    ${GREEN}6.${RESET} Komari 探针面板"
-    echo -e "  ${GREEN}7.${RESET} SOCKS5 面板     ${GREEN}8.${RESET} 🛡️ Lucky SSL"
-    echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${GREEN}9.${RESET} 老王工具箱      ${GREEN}10.${RESET} 科技lion脚本"
-    echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${GREEN}11.${RESET} 🚀 BBR 加速     ${GREEN}12.${RESET} 💾 Swap 管理"
-    echo -e "  ${GREEN}13.${RESET} 🔐 SSH 加固     ${GREEN}14.${RESET} 🔄 进程保活"
-    echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${CYAN}u.${RESET} 更新主控       ${RED}x.${RESET} 卸载工具箱"
-    echo -e "  ${GREEN}0.${RESET} 退出"
-    echo -e "${CYAN}=========================================${RESET}"
-    read -p "请输入你的选择: " choice
+    echo ""
+    echo -e " ${GREEN}▸ 系统运维${RESET}"
+    echo -e "  ${GREEN}1.${RESET} 系统信息查询  ${GREEN}2.${RESET} 系统更新    ${GREEN}3.${RESET} 清理垃圾  ${GREEN}4.${RESET} NAT信息卡"
+    echo ""
+    echo -e " ${BLUE}▸ 服务管理${RESET}"
+    echo -e "  ${GREEN}5.${RESET} MTP 代理      ${GREEN}6.${RESET} Komari 探针  ${GREEN}7.${RESET} SOCKS5     ${GREEN}8.${RESET} Lucky SSL"
+    echo -e "  ${GREEN}15.${RESET} ${CYAN}📡 SBox 代理${RESET} ${YELLOW}(hy2/tuic/anytls)${RESET}"
+    echo ""
+    echo -e " ${YELLOW}▸ 外部工具${RESET}"
+    echo -e "  ${YELLOW}9.${RESET} 老王工具箱    ${YELLOW}10.${RESET} 科技lion脚本"
+    echo ""
+    echo -e " ${CYAN}▸ 系统增强${RESET}"
+    echo -e "  ${GREEN}11.${RESET} 🚀 BBR 加速   ${GREEN}12.${RESET} 💾 Swap 管理  ${GREEN}13.${RESET} 🔐 SSH 加固  ${GREEN}14.${RESET} 🔄 进程保活"
+    echo ""
+    echo -e " ${BLUE}▸ 维护${RESET}"
+    echo -e "  ${CYAN}u.${RESET} 更新主控     ${RED}x.${RESET} 卸载工具箱   ${GREEN}0.${RESET} 退出"
+    echo -e "${CYAN}══════════════════════════════════════${RESET}"
+    read -p "请输入选择: " choice
 
     case "$choice" in
         1) show_sys_info ;;
@@ -949,6 +992,7 @@ while true; do
         6) launch_komari ;;
         7) launch_s5 ;;
         8) launch_lucky ;;
+        15) launch_sbox ;;
         9) run_external "老王一键工具箱" "bash <(curl -fsSL ssh_tool.eooce.com)" ;;
         10) run_external "科技lion一键脚本" "bash <(curl -sL kejilion.sh)" ;;
         11) enable_bbr ;;

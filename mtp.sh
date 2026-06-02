@@ -3,17 +3,9 @@ cat > /usr/local/bin/mtp <<'EOF'
 
 # ============================================
 # MTP 代理管理面板
-# Version: v1.4.0 (IPv6 支持版)
-# ============================================
+# Version: v1.6.0 (IPv6 支持版)
 
-GREEN="\033[32m"
-RED="\033[31m"
-YELLOW="\033[33m"
-CYAN="\033[36m"
-BLUE="\033[34m"
-RESET="\033[0m"
-
-SCRIPT_VERSION="v1.4.0"
+SCRIPT_VERSION="v1.6.0"
 MTG_VERSION="2.1.7"
 
 CONFIG_FILE="/etc/mtg.toml"
@@ -115,11 +107,7 @@ get_public_ip() {
 format_tg_server() {
     local ip="$1"
     local ip_type="$2"
-    if [ "$ip_type" = "6" ]; then
-        echo "[${ip}]"
-    else
-        echo "$ip"
-    fi
+    echo "$ip"
 }
 
 write_info_file() {
@@ -291,29 +279,40 @@ choose_ip_mode() {
     echo -e "${CYAN}--- 请选择对外使用的 IP 类型 ---${RESET}"
     echo -e "  ${GREEN}1.${RESET} IPv4 ${YELLOW}(默认)${RESET}"
     echo -e "  ${GREEN}2.${RESET} IPv6"
-    read -p "请输入序号 (回车默认 1): " ip_choice
+    while true; do
+        read -p "请输入序号 (回车默认 1, q 取消): " ip_choice
+        [[ "$ip_choice" = "q" ]] && return 1
 
-    if [ -z "$ip_choice" ] || [ "$ip_choice" = "1" ]; then
-        IP_TYPE="4"
-        AUTO_IP=$(get_public_ip 4)
-        DISPLAY_IP=${AUTO_IP:-"获取失败，请手动输入"}
-        BIND_ADDR="0.0.0.0:${IN_PORT}"
-        read -p "👉 请输入公网 IPv4 地址 (识别出: $DISPLAY_IP): " PUBLIC_IP
-        PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
-        is_valid_ipv4 "$PUBLIC_IP" || { echo -e "${RED}❌ 公网 IPv4 地址无效！${RESET}"; return 1; }
-    elif [ "$ip_choice" = "2" ]; then
-        IP_TYPE="6"
-        AUTO_IP=$(get_public_ip 6)
-        DISPLAY_IP=${AUTO_IP:-"获取失败，请手动输入"}
-        BIND_ADDR="[::]:${IN_PORT}"
-        read -p "👉 请输入公网 IPv6 地址 (识别出: $DISPLAY_IP): " PUBLIC_IP
-        PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
-        is_valid_ipv6 "$PUBLIC_IP" || { echo -e "${RED}❌ 公网 IPv6 地址无效！${RESET}"; return 1; }
-    else
-        echo -e "${RED}❌ 输入错误！${RESET}"
-        return 1
-    fi
-    return 0
+        if [ -z "$ip_choice" ] || [ "$ip_choice" = "1" ]; then
+            IP_TYPE="4"
+            AUTO_IP=$(get_public_ip 4)
+            DISPLAY_IP=${AUTO_IP:-"获取失败，请手动输入"}
+            BIND_ADDR="0.0.0.0:${IN_PORT}"
+            while true; do
+                read -p "👉 请输入公网 IPv4 地址 (识别出: $DISPLAY_IP, 直接回车使用): " PUBLIC_IP
+                PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
+                if is_valid_ipv4 "$PUBLIC_IP"; then
+                    return 0
+                fi
+                echo -e "${RED}❌ IPv4 格式无效，请重新输入！${RESET}"
+            done
+        elif [ "$ip_choice" = "2" ]; then
+            IP_TYPE="6"
+            AUTO_IP=$(get_public_ip 6)
+            DISPLAY_IP=${AUTO_IP:-"获取失败，请手动输入"}
+            BIND_ADDR="[::]:${IN_PORT}"
+            while true; do
+                read -p "👉 请输入公网 IPv6 地址 (识别出: $DISPLAY_IP, 直接回车使用): " PUBLIC_IP
+                PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
+                if is_valid_ipv6 "$PUBLIC_IP"; then
+                    return 0
+                fi
+                echo -e "${RED}❌ IPv6 格式无效，请重新输入！${RESET}"
+            done
+        else
+            echo -e "${RED}❌ 输入错误，请重新选择！${RESET}"
+        fi
+    done
 }
 
 install_mtp() {
@@ -342,24 +341,47 @@ install_mtp() {
 
     if [ -z "$net_choice" ] || [ "$net_choice" = "1" ]; then
         echo -e "${YELLOW}💡 提示: NAT 机器请确认商家后台映射端口。${RESET}"
-        read -p "👉 1. 请输入【公网/外网可用端口】(回车默认 10086): " OUT_PORT
-        OUT_PORT=${OUT_PORT:-10086}
-        is_valid_port "$OUT_PORT" || { echo -e "${RED}❌ 公网端口无效！${RESET}"; pause; return; }
+        while true; do
+            read -p "👉 1. 请输入【公网/外网可用端口】(回车默认 10086, 输入 q 取消): " OUT_PORT
+            OUT_PORT=${OUT_PORT:-10086}
+            [[ "$OUT_PORT" = "q" ]] && { echo -e "${YELLOW}已取消安装${RESET}"; pause; return; }
+            if ! is_valid_port "$OUT_PORT"; then
+                echo -e "${RED}❌ 端口无效！${RESET}"
+            else
+                break
+            fi
+        done
 
-        read -p "👉 2. 请输入【内网监听端口】(回车默认与外网一致: $OUT_PORT): " IN_PORT
-        IN_PORT=${IN_PORT:-$OUT_PORT}
-        is_valid_port "$IN_PORT" || { echo -e "${RED}❌ 内网监听端口无效！${RESET}"; pause; return; }
-        is_port_in_use "$IN_PORT" && { echo -e "${RED}❌ 监听端口 ${IN_PORT} 已被占用！${RESET}"; pause; return; }
+        while true; do
+            read -p "👉 2. 请输入【内网监听端口】(回车默认与外网一致: $OUT_PORT, 输入 q 取消): " IN_PORT
+            IN_PORT=${IN_PORT:-$OUT_PORT}
+            [[ "$IN_PORT" = "q" ]] && { echo -e "${YELLOW}已取消安装${RESET}"; pause; return; }
+            if ! is_valid_port "$IN_PORT"; then
+                echo -e "${RED}❌ 内网监听端口无效！${RESET}"
+            elif is_port_in_use "$IN_PORT"; then
+                echo -e "${RED}❌ 监听端口 ${IN_PORT} 已被占用！${RESET}"
+            else
+                break
+            fi
+        done
 
         choose_ip_mode || { pause; return; }
 
         echo -e "   ${GREEN}✅ NAT 节点配置完成 -> IP: ${PUBLIC_IP} | 内网端口: ${IN_PORT} | 外网端口: ${OUT_PORT}${RESET}"
     elif [ "$net_choice" = "2" ]; then
         echo -e "${YELLOW}💡 提示: 独立 VPS 推荐使用 443 端口。${RESET}"
-        read -p "👉 请输入你想使用的端口 (回车默认 443): " IN_PORT
-        IN_PORT=${IN_PORT:-443}
-        is_valid_port "$IN_PORT" || { echo -e "${RED}❌ 端口无效！${RESET}"; pause; return; }
-        is_port_in_use "$IN_PORT" && { echo -e "${RED}❌ 端口 ${IN_PORT} 已被占用！${RESET}"; pause; return; }
+        while true; do
+            read -p "👉 请输入你想使用的端口 (回车默认 443, 输入 q 取消): " IN_PORT
+            IN_PORT=${IN_PORT:-443}
+            [[ "$IN_PORT" = "q" ]] && { echo -e "${YELLOW}已取消安装${RESET}"; pause; return; }
+            if ! is_valid_port "$IN_PORT"; then
+                echo -e "${RED}❌ 端口无效！${RESET}"
+            elif is_port_in_use "$IN_PORT"; then
+                echo -e "${RED}❌ 端口 ${IN_PORT} 已被占用！${RESET}"
+            else
+                break
+            fi
+        done
 
         OUT_PORT=$IN_PORT
         choose_ip_mode || { pause; return; }
@@ -431,14 +453,29 @@ modify_config() {
 
     echo -e "${CYAN}--- 修改映射与配置信息 ---${RESET}"
 
-    read -p "输入新【内网监听端口】 (回车保持 ${IN_PORT}): " NEW_IN
-    NEW_IN=${NEW_IN:-$IN_PORT}
-    is_valid_port "$NEW_IN" || { echo -e "${RED}❌ 内网监听端口无效！${RESET}"; pause; return; }
-    [ "$NEW_IN" != "$IN_PORT" ] && is_port_in_use "$NEW_IN" && { echo -e "${RED}❌ 端口已被占用！${RESET}"; pause; return; }
+    while true; do
+        read -p "输入新【内网监听端口】 (回车保持 ${IN_PORT}, 输入 0 取消): " NEW_IN
+        NEW_IN=${NEW_IN:-$IN_PORT}
+        [[ "$NEW_IN" = "0" ]] && { pause; return; }
+        if ! is_valid_port "$NEW_IN"; then
+            echo -e "${RED}❌ 端口无效！${RESET}"
+        elif [ "$NEW_IN" != "$IN_PORT" ] && is_port_in_use "$NEW_IN"; then
+            echo -e "${RED}❌ 端口已被占用！${RESET}"
+        else
+            break
+        fi
+    done
 
-    read -p "输入新【公网端口】 (回车保持 ${OUT_PORT}): " NEW_OUT
-    NEW_OUT=${NEW_OUT:-$OUT_PORT}
-    is_valid_port "$NEW_OUT" || { echo -e "${RED}❌ 公网端口无效！${RESET}"; pause; return; }
+    while true; do
+        read -p "输入新【公网端口】 (回车保持 ${OUT_PORT}, 输入 0 取消): " NEW_OUT
+        NEW_OUT=${NEW_OUT:-$OUT_PORT}
+        [[ "$NEW_OUT" = "0" ]] && { pause; return; }
+        if ! is_valid_port "$NEW_OUT"; then
+            echo -e "${RED}❌ 端口无效！${RESET}"
+        else
+            break
+        fi
+    done
 
     echo -e "${CYAN}当前 IP 类型: IPv${IP_TYPE}${RESET}"
     echo -e "  ${GREEN}1.${RESET} IPv4"
@@ -455,17 +492,29 @@ modify_config() {
         AUTO_IP=$(get_public_ip 6)
         DISPLAY_IP=${AUTO_IP:-"获取失败"}
         echo -e "${YELLOW}当前机器识别到的 IPv6 为: ${DISPLAY_IP}${RESET}"
-        read -p "输入新【公网 IPv6】 (回车保持 ${PUBLIC_IP}): " NEW_IP
-        NEW_IP=${NEW_IP:-$PUBLIC_IP}
-        is_valid_ipv6 "$NEW_IP" || { echo -e "${RED}❌ 公网 IPv6 格式无效！${RESET}"; pause; return; }
+        while true; do
+            read -p "输入新【公网 IPv6】 (回车保持 ${PUBLIC_IP}, 输入 0 取消): " NEW_IP
+            NEW_IP=${NEW_IP:-$PUBLIC_IP}
+            [[ "$NEW_IP" = "0" ]] && { pause; return; }
+            if is_valid_ipv6 "$NEW_IP"; then
+                break
+            fi
+            echo -e "${RED}❌ IPv6 格式无效！${RESET}"
+        done
         NEW_BIND_ADDR="[::]:${NEW_IN}"
     else
         AUTO_IP=$(get_public_ip 4)
         DISPLAY_IP=${AUTO_IP:-"获取失败"}
         echo -e "${YELLOW}当前机器识别到的 IPv4 为: ${DISPLAY_IP}${RESET}"
-        read -p "输入新【公网 IPv4】 (回车保持 ${PUBLIC_IP}): " NEW_IP
-        NEW_IP=${NEW_IP:-$PUBLIC_IP}
-        is_valid_ipv4 "$NEW_IP" || { echo -e "${RED}❌ 公网 IPv4 格式无效！${RESET}"; pause; return; }
+        while true; do
+            read -p "输入新【公网 IPv4】 (回车保持 ${PUBLIC_IP}, 输入 0 取消): " NEW_IP
+            NEW_IP=${NEW_IP:-$PUBLIC_IP}
+            [[ "$NEW_IP" = "0" ]] && { pause; return; }
+            if is_valid_ipv4 "$NEW_IP"; then
+                break
+            fi
+            echo -e "${RED}❌ IPv4 格式无效！${RESET}"
+        done
         NEW_BIND_ADDR="0.0.0.0:${NEW_IN}"
     fi
 
@@ -559,9 +608,12 @@ update_script() {
         if bash -n "$tmp_file" 2>/dev/null; then
             mv "$tmp_file" /usr/local/bin/mtp
             chmod +x /usr/local/bin/mtp
-            echo -e "${GREEN}✅ 面板更新完成！请重新输入 mtp 启动最新版。${RESET}"
-            sleep 2
-            exec /usr/local/bin/mtp
+            echo -e "${GREEN}✅ 面板更新完成！正在重启...${RESET}"
+            sleep 1
+            exec /usr/local/bin/mtp 2>/dev/null || {
+                echo -e "${YELLOW}⚠ auto-restart 失败，请手动输入 mtp${RESET}"
+                exit 0
+            }
         else
             rm -f "$tmp_file"
             echo -e "${RED}❌ 新脚本语法校验失败，已取消更新！${RESET}"
@@ -595,23 +647,19 @@ while true; do
     echo -e "${CYAN}=========================================${RESET}"
     echo -e "   🦇 MTP 代理管理面板 ${GREEN}${SCRIPT_VERSION}${RESET}"
     echo -e "${CYAN}=========================================${RESET}"
-    echo -e "当前状态: ${RESET}$(get_status)"
-    echo -e "当前地址: ${YELLOW}${CURRENT_PUBLIC_IP}:${CURRENT_OUT_PORT}${RESET}"
-    echo -e "IP 类型:  ${GREEN}IPv${CURRENT_IP_TYPE}${RESET}"
-    echo -e "快捷指令: ${GREEN}mtp${RESET}"
-    echo -e "MTG版本:  ${YELLOW}v${MTG_VERSION}${RESET}"
-    echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${GREEN}1.${RESET} 安装 / 重装 MTP (支持 IPv4 / IPv6)"
-    echo -e "  ${GREEN}2.${RESET} 查看当前 TG 链接与信息"
-    echo -e "  ${GREEN}3.${RESET} 修改端口、IP 与伪装域名"
-    echo -e "  ${YELLOW}4.${RESET} 启动 MTP 服务"
-    echo -e "  ${YELLOW}5.${RESET} 停止 MTP 服务"
-    echo -e "  ${CYAN}6.${RESET} 重启 MTP 服务"
-    echo -e "  ${CYAN}7.${RESET} 查看运行日志"
-    echo -e "  ${RED}8.${RESET} 彻底卸载 MTP"
-    echo -e "  ${BLUE}9.${RESET} 更新面板代码 (从 GitHub 同步)"
-    echo -e "  ${GREEN}0.${RESET} 退出面板"
-    echo -e "  ${YELLOW}00.${RESET} 返回主菜单 (NooMili)"
+    echo -e "状态: ${RESET}$(get_status)"
+    echo -e "地址: ${YELLOW}${CURRENT_PUBLIC_IP}:${CURRENT_OUT_PORT}${RESET}  ${CYAN}IP:${RESET} ${GREEN}IPv${CURRENT_IP_TYPE}${RESET}  ${CYAN}核心:${RESET} ${YELLOW}v${MTG_VERSION}${RESET}"
+    echo -e "${GREEN}--- 部署 ---${RESET}"
+    echo -e "  ${GREEN}1.${RESET} 安装 / 重装 MTP (IPv4/IPv6)"
+    echo -e "  ${GREEN}2.${RESET} 查看 TG 链接与信息"
+    echo -e "  ${GREEN}3.${RESET} 修改端口/IP/伪装域名"
+    echo -e "${YELLOW}--- 控制 ---${RESET}"
+    echo -e "  ${GREEN}4.${RESET} 启动服务        ${RED}5.${RESET} 停止服务"
+    echo -e "  ${CYAN}6.${RESET} 重启服务        ${CYAN}7.${RESET} 查看日志"
+    echo -e "${BLUE}--- 维护 ---${RESET}"
+    echo -e "  ${BLUE}9.${RESET} 更新面板代码"
+    echo -e "  ${RED}8.${RESET} 彻底卸载         ${GREEN}0.${RESET} 退出"
+    echo -e "  ${YELLOW}00.${RESET} 返回主菜单"
     echo -e "${CYAN}=========================================${RESET}"
     read -p "请输入序号选择功能: " choice
 

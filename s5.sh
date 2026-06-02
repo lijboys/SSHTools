@@ -8,7 +8,7 @@ CYAN="\033[36m"
 BLUE="\033[34m"
 RESET="\033[0m"
 
-SCRIPT_VERSION="v1.8.0"
+SCRIPT_VERSION="v1.10.0"
 CONF_FILE="/etc/danted.conf"
 INFO_FILE="/etc/s5_info.txt"
 SERVICE_NAME="danted"
@@ -316,32 +316,43 @@ choose_ip_mode() {
     echo ""
     echo -e "${CYAN}--- 请选择对外使用的 IP 类型 ---${RESET}"
     echo -e "  ${GREEN}1.${RESET} IPv4 ${YELLOW}(默认，Dante 后端)${RESET}"
-    echo -e "  ${GREEN}2.${RESET} IPv6 ${YELLOW}(实验性支持，GOST 后端)${RESET}"
-    read -rp "请输入序号 (回车默认 1): " ip_choice
+    echo -e "  ${GREEN}2.${RESET} IPv6 ${YELLOW}(GOST 后端)${RESET}"
+    while true; do
+        read -rp "请输入序号 (回车默认 1, q 取消): " ip_choice
+        [[ "$ip_choice" = "q" ]] && return 1
 
-    if [[ -z "$ip_choice" || "$ip_choice" = "1" ]]; then
-        IP_TYPE="4"
-        local AUTO_IP
-        AUTO_IP=$(get_public_ip 4)
-        local DISPLAY_IP
-        DISPLAY_IP=${AUTO_IP:-"获取失败，请手动输入"}
-        read -rp "👉 请输入公网 IPv4 地址 (识别出: $DISPLAY_IP): " PUBLIC_IP
-        PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
-        is_valid_ipv4 "$PUBLIC_IP" || { echo -e "${RED}❌ 公网 IPv4 地址无效！${RESET}"; return 1; }
-    elif [[ "$ip_choice" = "2" ]]; then
-        IP_TYPE="6"
-        local AUTO_IP
-        AUTO_IP=$(get_public_ip 6)
-        local DISPLAY_IP
-        DISPLAY_IP=${AUTO_IP:-"获取失败，请手动输入"}
-        read -rp "👉 请输入公网 IPv6 地址 (识别出: $DISPLAY_IP): " PUBLIC_IP
-        PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
-        is_valid_ipv6 "$PUBLIC_IP" || { echo -e "${RED}❌ 公网 IPv6 地址无效！${RESET}"; return 1; }
-    else
-        echo -e "${RED}❌ 输入错误！${RESET}"
-        return 1
-    fi
-    return 0
+        if [[ -z "$ip_choice" || "$ip_choice" = "1" ]]; then
+            IP_TYPE="4"
+            local AUTO_IP
+            AUTO_IP=$(get_public_ip 4)
+            local DISPLAY_IP
+            DISPLAY_IP=${AUTO_IP:-"获取失败，请手动输入"}
+            while true; do
+                read -rp "👉 请输入公网 IPv4 地址 (识别出: $DISPLAY_IP, 直接回车使用): " PUBLIC_IP
+                PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
+                if is_valid_ipv4 "$PUBLIC_IP"; then
+                    return 0
+                fi
+                echo -e "${RED}❌ IPv4 格式无效，请重新输入！${RESET}"
+            done
+        elif [[ "$ip_choice" = "2" ]]; then
+            IP_TYPE="6"
+            local AUTO_IP
+            AUTO_IP=$(get_public_ip 6)
+            local DISPLAY_IP
+            DISPLAY_IP=${AUTO_IP:-"获取失败，请手动输入"}
+            while true; do
+                read -rp "👉 请输入公网 IPv6 地址 (识别出: $DISPLAY_IP, 直接回车使用): " PUBLIC_IP
+                PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
+                if is_valid_ipv6 "$PUBLIC_IP"; then
+                    return 0
+                fi
+                echo -e "${RED}❌ IPv6 格式无效，请重新输入！${RESET}"
+            done
+        else
+            echo -e "${RED}❌ 输入错误，请重新选择！${RESET}"
+        fi
+    done
 }
 
 ensure_user_password() {
@@ -548,23 +559,31 @@ install_s5_ipv4_dante() {
 
     echo ""
     echo -e "${YELLOW}💡 提示: SOCKS5 推荐使用 1080 或 10800 端口。${RESET}"
-    read -rp "👉 请输入监听端口 (回车默认 1080): " port
-    port=${port:-1080}
-
-    if ! is_valid_port "$port"; then
-        echo -e "${RED}❌ 端口无效！${RESET}"; pause; return
-    fi
-    if is_port_in_use "$port"; then
-        echo -e "${RED}❌ 端口 ${port} 已被占用！${RESET}"; pause; return
-    fi
+    while true; do
+        read -rp "👉 请输入监听端口 (回车默认 1080, 输入 q 取消): " port
+        port=${port:-1080}
+        [[ "$port" = "q" ]] && { echo -e "${YELLOW}已取消安装${RESET}"; pause; return; }
+        if ! is_valid_port "$port"; then
+            echo -e "${RED}❌ 端口无效，请重新输入！${RESET}"
+        elif is_port_in_use "$port"; then
+            echo -e "${RED}❌ 端口 ${port} 已被占用，请换一个！${RESET}"
+        else
+            break
+        fi
+    done
 
     local AUTO_IP
     AUTO_IP=$(get_public_ip 4)
     local DISPLAY_IP
     DISPLAY_IP=${AUTO_IP:-"获取失败，请手动输入"}
-    read -rp "👉 请输入公网 IPv4 地址 (识别出: $DISPLAY_IP): " PUBLIC_IP
-    PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
-    is_valid_ipv4 "$PUBLIC_IP" || { echo -e "${RED}❌ 公网 IPv4 地址无效！${RESET}"; pause; return; }
+    while true; do
+        read -rp "👉 请输入公网 IPv4 地址 (识别出: $DISPLAY_IP, 直接回车使用): " PUBLIC_IP
+        PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
+        if is_valid_ipv4 "$PUBLIC_IP"; then
+            break
+        fi
+        echo -e "${RED}❌ IPv4 格式无效 (如 1.2.3.4)，请重新输入！${RESET}"
+    done
 
     read -rp "👉 请输入用户名 (回车默认 s5user): " user
     user=${user:-s5user}
@@ -601,23 +620,31 @@ install_s5_ipv6_gost() {
 
     echo ""
     echo -e "${YELLOW}💡 提示: SOCKS5 推荐使用 1080 或 10800 端口。${RESET}"
-    read -rp "👉 请输入监听端口 (回车默认 1080): " port
-    port=${port:-1080}
-
-    if ! is_valid_port "$port"; then
-        echo -e "${RED}❌ 端口无效！${RESET}"; pause; return
-    fi
-    if is_port_in_use "$port"; then
-        echo -e "${RED}❌ 端口 ${port} 已被占用！${RESET}"; pause; return
-    fi
+    while true; do
+        read -rp "👉 请输入监听端口 (回车默认 1080, 输入 q 取消): " port
+        port=${port:-1080}
+        [[ "$port" = "q" ]] && { echo -e "${YELLOW}已取消安装${RESET}"; pause; return; }
+        if ! is_valid_port "$port"; then
+            echo -e "${RED}❌ 端口无效，请重新输入！${RESET}"
+        elif is_port_in_use "$port"; then
+            echo -e "${RED}❌ 端口 ${port} 已被占用，请换一个！${RESET}"
+        else
+            break
+        fi
+    done
 
     local AUTO_IP
     AUTO_IP=$(get_public_ip 6)
     local DISPLAY_IP
     DISPLAY_IP=${AUTO_IP:-"获取失败，请手动输入"}
-    read -rp "👉 请输入公网 IPv6 地址 (识别出: $DISPLAY_IP): " PUBLIC_IP
-    PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
-    is_valid_ipv6 "$PUBLIC_IP" || { echo -e "${RED}❌ 公网 IPv6 地址无效！${RESET}"; pause; return; }
+    while true; do
+        read -rp "👉 请输入公网 IPv6 地址 (识别出: $DISPLAY_IP, 直接回车使用): " PUBLIC_IP
+        PUBLIC_IP=${PUBLIC_IP:-$AUTO_IP}
+        if is_valid_ipv6 "$PUBLIC_IP"; then
+            break
+        fi
+        echo -e "${RED}❌ IPv6 格式无效，请重新输入！${RESET}"
+    done
 
     read -rp "👉 请输入用户名 (回车默认 s5user): " user
     user=${user:-s5user}
@@ -725,16 +752,18 @@ modify_s5() {
         echo -e "${CYAN}--- 修改 IPv4 Dante 配置 ---${RESET}"
     fi
 
-    read -rp "输入新【监听端口】 (回车保持 ${old_port}): " new_port
-    new_port=${new_port:-$old_port}
-    if ! is_valid_port "$new_port"; then
-        echo -e "${RED}❌ 端口无效！${RESET}"
-        pause; return
-    fi
-    if [[ "$new_port" != "$old_port" ]] && is_port_in_use "$new_port"; then
-        echo -e "${RED}❌ 端口已被占用！${RESET}"
-        pause; return
-    fi
+    while true; do
+        read -rp "输入新【监听端口】 (回车保持 ${old_port}, 输入 0 取消): " new_port
+        new_port=${new_port:-$old_port}
+        [[ "$new_port" = "0" ]] && { pause; return; }
+        if ! is_valid_port "$new_port"; then
+            echo -e "${RED}❌ 端口无效！${RESET}"
+        elif [[ "$new_port" != "$old_port" ]] && is_port_in_use "$new_port"; then
+            echo -e "${RED}❌ 端口已被占用！${RESET}"
+        else
+            break
+        fi
+    done
 
     read -rp "输入新【用户名】 (回车保持 ${old_user}): " new_user
     new_user=${new_user:-$old_user}
@@ -747,9 +776,15 @@ modify_s5() {
         AUTO_IP=$(get_public_ip 6)
         local DISPLAY_IP=${AUTO_IP:-"获取失败"}
         echo -e "${YELLOW}当前机器识别到的 IPv6 为: ${DISPLAY_IP}${RESET}"
-        read -rp "输入新【公网 IPv6】 (回车保持 ${old_ip}): " new_ip
-        new_ip=${new_ip:-$old_ip}
-        is_valid_ipv6 "$new_ip" || { echo -e "${RED}❌ 公网 IPv6 格式无效！${RESET}"; pause; return; }
+        while true; do
+            read -rp "输入新【公网 IPv6】 (回车保持 ${old_ip}, 输入 0 取消): " new_ip
+            new_ip=${new_ip:-$old_ip}
+            [[ "$new_ip" = "0" ]] && { pause; return; }
+            if is_valid_ipv6 "$new_ip"; then
+                break
+            fi
+            echo -e "${RED}❌ IPv6 格式无效！${RESET}"
+        done
 
         echo -e "${YELLOW}正在更新 GOST 配置...${RESET}"
         stop_gost_service
@@ -776,9 +811,15 @@ modify_s5() {
         AUTO_IP=$(get_public_ip 4)
         local DISPLAY_IP=${AUTO_IP:-"获取失败"}
         echo -e "${YELLOW}当前机器识别到的 IPv4 为: ${DISPLAY_IP}${RESET}"
-        read -rp "输入新【公网 IPv4】 (回车保持 ${old_ip}): " new_ip
-        new_ip=${new_ip:-$old_ip}
-        is_valid_ipv4 "$new_ip" || { echo -e "${RED}❌ 公网 IPv4 格式无效！${RESET}"; pause; return; }
+        while true; do
+            read -rp "输入新【公网 IPv4】 (回车保持 ${old_ip}, 输入 0 取消): " new_ip
+            new_ip=${new_ip:-$old_ip}
+            [[ "$new_ip" = "0" ]] && { pause; return; }
+            if is_valid_ipv4 "$new_ip"; then
+                break
+            fi
+            echo -e "${RED}❌ IPv4 格式无效！${RESET}"
+        done
 
         local iface
         iface=$(detect_iface)
@@ -911,9 +952,12 @@ update_script() {
         if bash -n "$tmp_file" 2>/dev/null; then
             mv "$tmp_file" /usr/local/bin/s5
             chmod +x /usr/local/bin/s5
-            echo -e "${GREEN}✅ 脚本更新完成！请重新输入 s5 启动最新版。${RESET}"
-            sleep 2
-            exit 0
+            echo -e "${GREEN}✅ 脚本更新完成！正在重启面板...${RESET}"
+            sleep 1
+            exec /usr/local/bin/s5 2>/dev/null || {
+                echo -e "${YELLOW}⚠ auto-restart 失败，请手动输入 s5${RESET}"
+                exit 0
+            }
         else
             rm -f "$tmp_file"
             echo -e "${RED}❌ 新脚本语法校验失败，已取消更新！${RESET}"
@@ -951,23 +995,19 @@ while true; do
     echo -e "${CYAN}=========================================${RESET}"
     echo -e "   🦇 SOCKS5 管理面板 ${GREEN}${SCRIPT_VERSION}${RESET}"
     echo -e "${CYAN}=========================================${RESET}"
-    echo -e "当前状态: ${RESET}$(get_status)"
-    echo -e "当前地址: ${YELLOW}${CURRENT_IP}:${CURRENT_PORT}${RESET}"
-    echo -e "IP 类型:  ${GREEN}IPv${CURRENT_IP_TYPE}${RESET}"
-    echo -e "当前账号: ${GREEN}${CURRENT_USER}${RESET}"
-    echo -e "快捷指令: ${GREEN}s5${RESET}"
-    echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${GREEN}1.${RESET} 安装 / 重装 SOCKS5"
-    echo -e "  ${GREEN}2.${RESET} 查看当前连接信息"
-    echo -e "  ${GREEN}3.${RESET} 修改端口、IP 与账号密码"
-    echo -e "  ${YELLOW}4.${RESET} 启动 SOCKS5 服务"
-    echo -e "  ${YELLOW}5.${RESET} 停止 SOCKS5 服务"
-    echo -e "  ${CYAN}6.${RESET} 重启 SOCKS5 服务"
-    echo -e "  ${CYAN}7.${RESET} 查看运行日志"
-    echo -e "  ${BLUE}8.${RESET} 更新脚本代码 (从 GitHub 同步)"
-    echo -e "  ${RED}9.${RESET} 彻底卸载 SOCKS5"
-    echo -e "  ${GREEN}0.${RESET} 退出面板"
-    echo -e "  ${YELLOW}00.${RESET} 返回主菜单 (NooMili)"
+    echo -e "状态: ${RESET}$(get_status)"
+    echo -e "地址: ${YELLOW}${CURRENT_IP}:${CURRENT_PORT}${RESET}"
+    echo -e "账号: ${GREEN}${CURRENT_USER}${RESET}  ${CYAN}IP:${RESET} ${GREEN}IPv${CURRENT_IP_TYPE}${RESET}  ${CYAN}指令:${RESET} ${GREEN}s5${RESET}"
+    echo -e "${GREEN}--- 部署 ---${RESET}"
+    echo -e "  ${GREEN}1.${RESET} 安装 / 重装      ${GREEN}2.${RESET} 查看连接信息"
+    echo -e "  ${GREEN}3.${RESET} 修改端口/IP/账号"
+    echo -e "${YELLOW}--- 控制 ---${RESET}"
+    echo -e "  ${GREEN}4.${RESET} 启动服务        ${RED}5.${RESET} 停止服务"
+    echo -e "  ${CYAN}6.${RESET} 重启服务        ${CYAN}7.${RESET} 查看日志"
+    echo -e "${BLUE}--- 维护 ---${RESET}"
+    echo -e "  ${BLUE}8.${RESET} 更新面板代码"
+    echo -e "  ${RED}9.${RESET} 彻底卸载         ${GREEN}0.${RESET} 退出"
+    echo -e "  ${YELLOW}00.${RESET} 返回主菜单"
     echo -e "${CYAN}=========================================${RESET}"
     read -rp "请输入序号选择功能: " choice
 
