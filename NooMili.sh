@@ -904,6 +904,81 @@ update_nat() {
     fi
 }
 
+update_scripts_menu() {
+    clear
+    echo -e "${CYAN}=========================================${RESET}"
+    echo -e "        🔄 服务脚本更新"
+    echo -e "${CYAN}=========================================${RESET}"
+    echo ""
+
+    local has_mtp="" has_s5="" has_komari="" has_sbox="" has_any=""
+    [ -f "/usr/local/bin/mtp" ]    && [ -x "/usr/local/bin/mtp" ]    && { has_mtp="1"; has_any="1"; }
+    [ -f "/usr/local/bin/s5" ]     && [ -x "/usr/local/bin/s5" ]     && { has_s5="1"; has_any="1"; }
+    [ -f "/usr/local/bin/komari" ] && [ -x "/usr/local/bin/komari" ] && { has_komari="1"; has_any="1"; }
+    [ -f "/usr/local/bin/sbox" ]   && [ -x "/usr/local/bin/sbox" ]   && { has_sbox="1"; has_any="1"; }
+
+    [ -z "$has_any" ] && { echo -e "${YELLOW}未检测到任何已安装的服务脚本，无需更新${RESET}"; pause; return; }
+
+    echo -e "${GREEN} 1.${RESET} 🔄 一键更新全部已安装"
+    echo ""
+    [ -n "$has_mtp" ]    && echo -e "${GREEN} 2.${RESET} 更新 MTP"
+    [ -n "$has_s5" ]     && echo -e "${GREEN} 3.${RESET} 更新 S5"
+    [ -n "$has_komari" ] && echo -e "${GREEN} 4.${RESET} 更新 Komari"
+    [ -n "$has_sbox" ]   && echo -e "${GREEN} 5.${RESET} 更新 SBox"
+    echo ""
+    echo -e "${GREEN} 0.${RESET} 返回"
+    echo -e "${CYAN}-----------------------------------------${RESET}"
+    read -p "请选择: " up_choice
+
+    do_update_one() {
+        local name=$1 url=$2
+        echo -ne "${YELLOW}  ${name}...${RESET}"
+        local tmp_sh=$(mktemp)
+        if curl -fsSL --connect-timeout 15 "$url" -o "$tmp_sh" 2>/dev/null; then
+            if bash -n "$tmp_sh" 2>/dev/null; then
+                mv "$tmp_sh" "/usr/local/bin/$name"
+                chmod +x "/usr/local/bin/$name"
+                echo -e "${GREEN} ✅${RESET}"
+            else
+                rm -f "$tmp_sh"
+                echo -e "${RED} ✗ 语法错误${RESET}"
+            fi
+        else
+            rm -f "$tmp_sh"
+            echo -e "${RED} ✗ 下载失败${RESET}"
+        fi
+    }
+
+    case "$up_choice" in
+        1)
+            echo ""
+            [ -n "$has_mtp" ]    && do_update_one "mtp"    "$MTP_URL"
+            [ -n "$has_s5" ]     && do_update_one "s5"     "$SOCKS5_URL"
+            [ -n "$has_komari" ] && do_update_one "komari" "$KOMARI_URL"
+            [ -n "$has_sbox" ]   && do_update_one "sbox"   "$SBOX_URL"
+            echo -e "\n${GREEN}✅ 全部更新完成，下次启动生效${RESET}"
+            ;;
+        2) [ -n "$has_mtp" ]    && { echo ""; do_update_one "mtp"    "$MTP_URL"; } || echo -e "${RED}MTP 未安装${RESET}" ;;
+        3) [ -n "$has_s5" ]     && { echo ""; do_update_one "s5"     "$SOCKS5_URL"; } || echo -e "${RED}S5 未安装${RESET}" ;;
+        4) [ -n "$has_komari" ] && { echo ""; do_update_one "komari" "$KOMARI_URL"; } || echo -e "${RED}Komari 未安装${RESET}" ;;
+        5) [ -n "$has_sbox" ]   && { echo ""; do_update_one "sbox"   "$SBOX_URL"; } || echo -e "${RED}SBox 未安装${RESET}" ;;
+    esac
+    pause
+}
+
+    update_one "mtp"    "$MTP_URL"
+    update_one "s5"     "$SOCKS5_URL"
+    update_one "komari" "$KOMARI_URL"
+    update_one "sbox"   "$SBOX_URL"
+
+    echo ""
+    echo -e "${CYAN}=========================================${RESET}"
+    [ "$updated" -gt 0 ] && echo -e "${GREEN}✅ ${updated} 个脚本已更新，下次启动生效${RESET}"
+    [ "$failed" -gt 0 ]  && echo -e "${RED}❌ ${failed} 个脚本更新失败${RESET}"
+    [ "$updated" -eq 0 ] && [ "$failed" -eq 0 ] && [ "$skipped" -eq 4 ] && echo -e "${YELLOW}未检测到任何已安装的服务脚本${RESET}"
+    pause
+}
+
 uninstall_nat() {
     clear
     echo -e "${CYAN}--- 卸载选项 ---${RESET}"
@@ -979,7 +1054,7 @@ while true; do
     echo -e "  ${GREEN}11.${RESET} 🚀 BBR 加速   ${GREEN}12.${RESET} 💾 Swap 管理  ${GREEN}13.${RESET} 🔐 SSH 加固  ${GREEN}14.${RESET} 🔄 进程保活"
     echo ""
     echo -e " ${BLUE}▸ 维护${RESET}"
-    echo -e "  ${CYAN}u.${RESET} 更新主控     ${RED}x.${RESET} 卸载工具箱   ${GREEN}0.${RESET} 退出"
+    echo -e "  ${GREEN}s.${RESET} 更新服务脚本  ${CYAN}u.${RESET} 更新主控    ${RED}x.${RESET} 卸载工具箱  ${GREEN}0.${RESET} 退出"
     echo -e "${CYAN}══════════════════════════════════════${RESET}"
     read -p "请输入选择: " choice
 
@@ -999,6 +1074,7 @@ while true; do
         12) manage_swap ;;
         13) ssh_harden ;;
         14) proc_guard ;;
+        s|S) update_scripts_menu ;;
         u|U) update_nat ;;
         x|X) uninstall_nat ;;
         0) clear; exit 0 ;;
