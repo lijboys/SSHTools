@@ -8,7 +8,7 @@ CYAN="\033[36m"
 BLUE="\033[34m"
 RESET="\033[0m"
 
-SCRIPT_VERSION="v1.5.0"
+SCRIPT_VERSION="v1.8.0"
 CONF_FILE="/etc/danted.conf"
 INFO_FILE="/etc/s5_info.txt"
 SERVICE_NAME="danted"
@@ -52,7 +52,14 @@ is_valid_ipv6() {
 }
 
 is_port_in_use() {
-    ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1$"
+    local port=$1
+    if command -v ss >/dev/null 2>&1; then
+        ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}$"
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}$"
+    else
+        return 1
+    fi
 }
 
 get_public_ip() {
@@ -264,6 +271,14 @@ start_dante_service() {
         sleep 1
         rc-service ${SERVICE_NAME} status >/dev/null 2>&1
     else
+        mkdir -p /etc/systemd/system/${SERVICE_NAME}.service.d
+        cat > /etc/systemd/system/${SERVICE_NAME}.service.d/sshtools.conf <<'OVERRIDE'
+[Service]
+Restart=always
+RestartSec=5
+LimitNOFILE=1048576
+OVERRIDE
+        systemctl daemon-reload
         systemctl enable ${SERVICE_NAME} >/dev/null 2>&1
         systemctl restart ${SERVICE_NAME} >/dev/null 2>&1
         sleep 1
@@ -287,7 +302,13 @@ show_dante_debug_on_fail() {
     echo -e "${CYAN}[3] 当前监听端口:${RESET}"
     local port_now
     port_now=$(grep -o 'port = [0-9]*' "$CONF_FILE" 2>/dev/null | awk '{print $3}' | head -n1)
-    ss -tlnp 2>/dev/null | grep -E "[:.]${port_now}[[:space:]]" || echo "未检测到监听"
+    if command -v ss >/dev/null 2>&1; then
+        ss -tlnp 2>/dev/null | grep -E "[:.]${port_now}[[:space:]]" || echo "未检测到监听"
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tlnp 2>/dev/null | grep -E "[:.]${port_now}[[:space:]]" || echo "未检测到监听"
+    else
+        echo "缺少 ss/netstat，跳过端口检测"
+    fi
     echo -e "${YELLOW}================ 调试信息结束 ================${RESET}"
 }
 
@@ -498,7 +519,15 @@ show_gost_debug_on_fail() {
         tail -n 50 /var/log/gost-s5.log 2>/dev/null || true
     fi
     echo -e "${CYAN}[监听检查]${RESET}"
-    ss -tlnp 2>/dev/null | grep -E "[:.]$(cat /etc/gost-s5-port 2>/dev/null)$" || echo "未检测到监听"
+    local gp
+    gp=$(cat /etc/gost-s5-port 2>/dev/null)
+    if command -v ss >/dev/null 2>&1; then
+        ss -tlnp 2>/dev/null | grep -E "[:.]${gp}$" || echo "未检测到监听"
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tlnp 2>/dev/null | grep -E "[:.]${gp}$" || echo "未检测到监听"
+    else
+        echo "缺少 ss/netstat，跳过端口检测"
+    fi
     echo -e "${YELLOW}================ GOST 调试信息结束 ================${RESET}"
 }
 
@@ -682,78 +711,97 @@ modify_s5() {
         return
     fi
 
-    local old_ip_type
+    local old_ip_type old_port old_user old_pass old_ip
     old_ip_type=$(read_info IP_TYPE)
     [[ -z "$old_ip_type" ]] && old_ip_type="4"
-
-    if [[ "$old_ip_type" = "6" ]]; then
-        echo -e "${YELLOW}当前 IPv6 SOCKS5 使用 GOST 后端。${RESET}"
-        echo -e "${YELLOW}为避免影响配置一致性，建议直接走覆盖重装流程。${RESET}"
-        read -rp "是否进入 IPv6 重装流程？[Y/n]: " yn
-        case "$yn" in
-            n|N) pause; return ;;
-            *) install_s5_ipv6_gost; return ;;
-        esac
-    fi
-
-    local old_port old_user old_pass old_ip
     old_port=$(read_info PORT)
     old_user=$(read_info USER)
     old_pass=$(read_info PASS)
     old_ip=$(read_info IP)
 
-    local iface
-    iface=$(detect_iface)
-    [[ -z "$iface" ]] && iface="eth0"
-
-    echo -e "${CYAN}--- 修改 IPv4 Dante 配置 ---${RESET}"
-
-    read -rp "输入新【监听端口】 (回车保持 ${old_port}): " port
-    port=${port:-$old_port}
-    if ! is_valid_port "$port"; then
-        echo -e "${RED}❌ 端口无效！${RESET}"
-        pause
-        return
-    fi
-    if [[ "$port" != "$old_port" ]] && is_port_in_use "$port"; then
-        echo -e "${RED}❌ 端口已被占用！${RESET}"
-        pause
-        return
-    fi
-
-    local AUTO_IP
-    AUTO_IP=$(get_public_ip 4)
-    local DISPLAY_IP
-    DISPLAY_IP=${AUTO_IP:-"获取失败"}
-    echo -e "${YELLOW}当前机器识别到的 IPv4 为: ${DISPLAY_IP}${RESET}"
-    read -rp "输入新【公网 IPv4】 (回车保持 ${old_ip}): " NEW_IP
-    NEW_IP=${NEW_IP:-$old_ip}
-    is_valid_ipv4 "$NEW_IP" || { echo -e "${RED}❌ 公网 IPv4 格式无效！${RESET}"; pause; return; }
-
-    read -rp "输入新【用户名】 (回车保持 ${old_user}): " user
-    user=${user:-$old_user}
-
-    read -rp "输入新【密码】 (回车保持原密码): " pass
-    pass=${pass:-$old_pass}
-
-    if [[ "$user" != "$old_user" ]]; then
-        id "$old_user" >/dev/null 2>&1 && userdel "$old_user" 2>/dev/null
-    fi
-
-    ensure_nobody_user
-    ensure_user_password "$user" "$pass"
-    write_dante_conf_ipv4 "$iface" "$port"
-
-    if start_dante_service; then
-        save_info "$NEW_IP" "$port" "$user" "$pass" "4"
-        echo -e "${GREEN}✅ 配置已更新并重启成功！${RESET}"
-        echo -e "\n${CYAN}📱 TG 代理链接：${RESET}"
-        echo -e "${GREEN}$(read_info TG_LINK)${RESET}"
-        echo -e "\n${CYAN}🔗 SOCKS5 链接：${RESET}"
-        echo -e "${YELLOW}$(read_info SOCKS5_LINK)${RESET}"
+    if [[ "$old_ip_type" = "6" ]]; then
+        echo -e "${CYAN}--- 修改 IPv6 GOST 配置 ---${RESET}"
     else
-        echo -e "${RED}❌ 配置已写入，但服务启动失败！${RESET}"
-        show_dante_debug_on_fail
+        echo -e "${CYAN}--- 修改 IPv4 Dante 配置 ---${RESET}"
+    fi
+
+    read -rp "输入新【监听端口】 (回车保持 ${old_port}): " new_port
+    new_port=${new_port:-$old_port}
+    if ! is_valid_port "$new_port"; then
+        echo -e "${RED}❌ 端口无效！${RESET}"
+        pause; return
+    fi
+    if [[ "$new_port" != "$old_port" ]] && is_port_in_use "$new_port"; then
+        echo -e "${RED}❌ 端口已被占用！${RESET}"
+        pause; return
+    fi
+
+    read -rp "输入新【用户名】 (回车保持 ${old_user}): " new_user
+    new_user=${new_user:-$old_user}
+
+    read -rp "输入新【密码】 (回车保持原密码): " new_pass
+    new_pass=${new_pass:-$old_pass}
+
+    if [[ "$old_ip_type" = "6" ]]; then
+        local AUTO_IP
+        AUTO_IP=$(get_public_ip 6)
+        local DISPLAY_IP=${AUTO_IP:-"获取失败"}
+        echo -e "${YELLOW}当前机器识别到的 IPv6 为: ${DISPLAY_IP}${RESET}"
+        read -rp "输入新【公网 IPv6】 (回车保持 ${old_ip}): " new_ip
+        new_ip=${new_ip:-$old_ip}
+        is_valid_ipv6 "$new_ip" || { echo -e "${RED}❌ 公网 IPv6 格式无效！${RESET}"; pause; return; }
+
+        echo -e "${YELLOW}正在更新 GOST 配置...${RESET}"
+        stop_gost_service
+
+        if [[ "$new_user" != "$old_user" ]]; then
+            id "$old_user" >/dev/null 2>&1 && userdel "$old_user" 2>/dev/null
+        fi
+        ensure_user_password "$new_user" "$new_pass"
+        write_gost_service "$new_port" "$new_user" "$new_pass" || { pause; return; }
+
+        if start_gost_service; then
+            save_info "$new_ip" "$new_port" "$new_user" "$new_pass" "6"
+            echo -e "${GREEN}✅ IPv6 GOST 配置已更新并重启成功！${RESET}"
+            echo -e "\n${CYAN}📱 TG 代理链接：${RESET}"
+            echo -e "${GREEN}$(read_info TG_LINK)${RESET}"
+            echo -e "\n${CYAN}🔗 SOCKS5 链接：${RESET}"
+            echo -e "${YELLOW}$(read_info SOCKS5_LINK)${RESET}"
+        else
+            echo -e "${RED}❌ 配置已写入但 GOST 启动失败！${RESET}"
+            show_gost_debug_on_fail
+        fi
+    else
+        local AUTO_IP
+        AUTO_IP=$(get_public_ip 4)
+        local DISPLAY_IP=${AUTO_IP:-"获取失败"}
+        echo -e "${YELLOW}当前机器识别到的 IPv4 为: ${DISPLAY_IP}${RESET}"
+        read -rp "输入新【公网 IPv4】 (回车保持 ${old_ip}): " new_ip
+        new_ip=${new_ip:-$old_ip}
+        is_valid_ipv4 "$new_ip" || { echo -e "${RED}❌ 公网 IPv4 格式无效！${RESET}"; pause; return; }
+
+        local iface
+        iface=$(detect_iface)
+        [[ -z "$iface" ]] && iface="eth0"
+
+        if [[ "$new_user" != "$old_user" ]]; then
+            id "$old_user" >/dev/null 2>&1 && userdel "$old_user" 2>/dev/null
+        fi
+        ensure_nobody_user
+        ensure_user_password "$new_user" "$new_pass"
+        write_dante_conf_ipv4 "$iface" "$new_port"
+
+        if start_dante_service; then
+            save_info "$new_ip" "$new_port" "$new_user" "$new_pass" "4"
+            echo -e "${GREEN}✅ IPv4 Dante 配置已更新并重启成功！${RESET}"
+            echo -e "\n${CYAN}📱 TG 代理链接：${RESET}"
+            echo -e "${GREEN}$(read_info TG_LINK)${RESET}"
+            echo -e "\n${CYAN}🔗 SOCKS5 链接：${RESET}"
+            echo -e "${YELLOW}$(read_info SOCKS5_LINK)${RESET}"
+        else
+            echo -e "${RED}❌ 配置已写入，但服务启动失败！${RESET}"
+            show_dante_debug_on_fail
+        fi
     fi
     pause
 }
@@ -824,12 +872,14 @@ uninstall_s5() {
 
     local pkg_mgr
     pkg_mgr=$(detect_pkg_manager)
-    case "$pkg_mgr" in
-        apk) apk del dante-server >/dev/null 2>&1 ;;
-        apt) apt remove -y dante-server >/dev/null 2>&1 ;;
-        dnf) dnf remove -y dante-server >/dev/null 2>&1 ;;
-        yum) yum remove -y dante-server >/dev/null 2>&1 ;;
-    esac
+    if command -v sockd >/dev/null 2>&1 || dpkg -l dante-server >/dev/null 2>&1 || rpm -q dante-server >/dev/null 2>&1; then
+        case "$pkg_mgr" in
+            apk) apk del dante-server >/dev/null 2>&1 ;;
+            apt) apt remove -y dante-server >/dev/null 2>&1 ;;
+            dnf) dnf remove -y dante-server >/dev/null 2>&1 ;;
+            yum) yum remove -y dante-server >/dev/null 2>&1 ;;
+        esac
+    fi
 
     if has_systemd; then
         systemctl disable ${GOST_SERVICE} >/dev/null 2>&1
@@ -917,6 +967,7 @@ while true; do
     echo -e "  ${BLUE}8.${RESET} 更新脚本代码 (从 GitHub 同步)"
     echo -e "  ${RED}9.${RESET} 彻底卸载 SOCKS5"
     echo -e "  ${GREEN}0.${RESET} 退出面板"
+    echo -e "  ${YELLOW}00.${RESET} 返回主菜单 (NooMili)"
     echo -e "${CYAN}=========================================${RESET}"
     read -rp "请输入序号选择功能: " choice
 
@@ -931,6 +982,7 @@ while true; do
         8) update_script ;;
         9) uninstall_s5 ;;
         0) clear; exit 0 ;;
+        00) [ -f "/usr/local/bin/n" ] && exec /usr/local/bin/n || { echo -e "${RED}未安装主控！${RESET}"; sleep 2; } ;;
         *) echo -e "${RED}输入错误！${RESET}"; sleep 1 ;;
     esac
 done
@@ -938,3 +990,6 @@ EOF
 
 chmod +x /usr/local/bin/s5
 echo -e "\033[32m✅ S5 Bash 版本已写入：IPv4 走 Dante，IPv6 走 GOST，并兼容 systemd/OpenRC。\033[0m"
+echo -e "\033[33m正在启动 SOCKS5 管理面板...\033[0m"
+sleep 1
+exec /usr/local/bin/s5

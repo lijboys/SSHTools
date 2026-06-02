@@ -3,7 +3,7 @@ cat > /usr/local/bin/mtp <<'EOF'
 
 # ============================================
 # MTP 代理管理面板
-# Version: v1.3.0 (IPv6 支持版)
+# Version: v1.4.0 (IPv6 支持版)
 # ============================================
 
 GREEN="\033[32m"
@@ -13,7 +13,7 @@ CYAN="\033[36m"
 BLUE="\033[34m"
 RESET="\033[0m"
 
-SCRIPT_VERSION="v1.3.0"
+SCRIPT_VERSION="v1.4.0"
 MTG_VERSION="2.1.7"
 
 CONFIG_FILE="/etc/mtg.toml"
@@ -36,7 +36,7 @@ pause() {
 
 check_dependencies() {
     local missing=()
-    for cmd in curl tar grep awk sed pgrep ss; do
+    for cmd in curl tar grep awk sed pgrep; do
         command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
     done
     [ ${#missing[@]} -gt 0 ] && { echo -e "${RED}❌ 缺少依赖: ${missing[*]}${RESET}"; return 1; }
@@ -72,7 +72,16 @@ is_valid_ipv6() {
 }
 
 is_valid_domain() { [[ "$1" =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; }
-is_port_in_use() { ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1$"; }
+is_port_in_use() {
+    local port=$1
+    if command -v ss >/dev/null 2>&1; then
+        ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}$"
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}$"
+    else
+        return 1
+    fi
+}
 
 read_info_value() {
     local key=$1
@@ -212,7 +221,7 @@ EOT
         sleep 2
         if pgrep -f "/usr/local/bin/mtg_guard.sh" >/dev/null 2>&1; then
             (
-                crontab -l 2>/dev/null | grep -v -E "mtg_guard.sh|mtg run ${CONFIG_FILE}"
+                crontab -l 2>/dev/null | grep -v -E "mtg_guard.sh|mtg run ${CONFIG_FILE}" || true
                 echo "@reboot nohup setsid /usr/local/bin/mtg_guard.sh >/dev/null 2>&1 </dev/null &"
                 echo "*/1 * * * * pgrep -f '/usr/local/bin/mtg_guard.sh' >/dev/null || nohup setsid /usr/local/bin/mtg_guard.sh >/dev/null 2>&1 </dev/null &"
             ) | crontab -
@@ -528,7 +537,9 @@ uninstall_mtp() {
     else
         pkill -9 -f "/usr/local/bin/mtg_guard.sh" 2>/dev/null
         pkill -9 -f "mtg run" 2>/dev/null
-        crontab -l 2>/dev/null | grep -v -E "mtg_guard.sh|mtg run ${CONFIG_FILE}" | crontab -
+        if crontab -l >/dev/null 2>&1; then
+            crontab -l 2>/dev/null | grep -v -E "mtg_guard.sh|mtg run ${CONFIG_FILE}" | crontab -
+        fi
     fi
 
     rm -f /usr/local/bin/mtg "$CONFIG_FILE" "$INFO_FILE" /usr/local/bin/mtp "$LOG_FILE" "$GUARD_FILE" "$GUARD_LOG"
@@ -550,7 +561,7 @@ update_script() {
             chmod +x /usr/local/bin/mtp
             echo -e "${GREEN}✅ 面板更新完成！请重新输入 mtp 启动最新版。${RESET}"
             sleep 2
-            exit 0
+            exec /usr/local/bin/mtp
         else
             rm -f "$tmp_file"
             echo -e "${RED}❌ 新脚本语法校验失败，已取消更新！${RESET}"
@@ -623,3 +634,6 @@ EOF
 
 chmod +x /usr/local/bin/mtp
 echo -e "\033[32m✅ IPv6 版 MTP 已安装完成！\033[0m"
+echo -e "\033[33m正在启动 MTP 面板...\033[0m"
+sleep 1
+exec /usr/local/bin/mtp

@@ -3,7 +3,7 @@
 # =========================================================
 #  NooMili - Komari 专用运维脚本
 #  GitHub: https://github.com/lijboys/SSHTools
-#  Version: v1.1.0
+#  Version: v1.2.0
 # =========================================================
 
 RED='\033[0;31m'
@@ -13,7 +13,7 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 PLAIN='\033[0m'
 
-SCRIPT_VERSION="v1.1.0"
+SCRIPT_VERSION="v1.2.0"
 SCRIPT_URL="https://raw.githubusercontent.com/lijboys/SSHTools/main/komari.sh"
 
 INSTALLER_URL="https://raw.githubusercontent.com/komari-monitor/komari/main/install-komari.sh"
@@ -69,8 +69,22 @@ is_valid_ipv4() {
     return 0
 }
 
+is_valid_ipv6() {
+    local ip=$1
+    [[ "$ip" =~ : ]] || return 1
+    [[ "$ip" =~ ^[0-9a-fA-F:]+$ ]] || return 1
+    return 0
+}
+
 is_port_in_use() {
-    ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$1$"
+    local port=$1
+    if command -v ss >/dev/null 2>&1; then
+        ss -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}$"
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tln 2>/dev/null | awk '{print $4}' | grep -qE "[:.]${port}$"
+    else
+        return 1
+    fi
 }
 
 download_installer() {
@@ -94,6 +108,38 @@ get_public_ip() {
     else
         echo ""
     fi
+}
+
+get_public_ip_cached() {
+    local CACHE_FILE="${INSTALL_DIR}/.cached_ip"
+    local cache_age=0
+    if [ -f "$CACHE_FILE" ]; then
+        cache_age=$(($(date +%s) - $(stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0)))
+    fi
+    if [ ! -f "$CACHE_FILE" ] || [ "$cache_age" -gt 300 ]; then
+        get_public_ip > "$CACHE_FILE" 2>/dev/null
+    fi
+    cat "$CACHE_FILE" 2>/dev/null
+}
+
+get_public_ipv6() {
+    local ip
+    ip=$(curl -s6m3 ipv6.icanhazip.com 2>/dev/null)
+    [ -z "$ip" ] && ip=$(curl -s6m3 api6.ipify.org 2>/dev/null)
+    [ -z "$ip" ] && ip=$(curl -s6m3 ifconfig.co 2>/dev/null)
+    if is_valid_ipv6 "$ip"; then echo "$ip"; else echo ""; fi
+}
+
+get_public_ipv6_cached() {
+    local CACHE_FILE="${INSTALL_DIR}/.cached_ipv6"
+    local cache_age=0
+    if [ -f "$CACHE_FILE" ]; then
+        cache_age=$(($(date +%s) - $(stat -c %Y "$CACHE_FILE" 2>/dev/null || echo 0)))
+    fi
+    if [ ! -f "$CACHE_FILE" ] || [ "$cache_age" -gt 300 ]; then
+        get_public_ipv6 > "$CACHE_FILE" 2>/dev/null
+    fi
+    cat "$CACHE_FILE" 2>/dev/null
 }
 
 # ================= 快捷命令创建 =================
@@ -155,8 +201,8 @@ get_komari_service_status() {
 
 draw_menu() {
     check_install
-    CURRENT_PORT=$(get_current_port)
-    PUBLIC_IP=$(get_public_ip)
+    CHECK_IPV4=$(get_public_ip_cached)
+    CHECK_IPV6=$(get_public_ipv6_cached)
 
     clear
     echo -e "${BLUE}=======================================${PLAIN}"
@@ -167,10 +213,13 @@ draw_menu() {
 
     if [ -d "$INSTALL_DIR" ]; then
         echo -e "公网访问端口: ${YELLOW}${CURRENT_PORT}${PLAIN}"
-        if [ -n "$PUBLIC_IP" ]; then
-            echo -e "直连访问地址: ${CYAN}http://${PUBLIC_IP}:${CURRENT_PORT}${PLAIN}"
+        if [ -n "$CHECK_IPV4" ]; then
+            echo -e "直连 IPv4:     ${CYAN}http://${CHECK_IPV4}:${CURRENT_PORT}${PLAIN}"
         else
-            echo -e "直连访问地址: ${YELLOW}公网 IP 获取失败，请手动确认${PLAIN}"
+            echo -e "直连 IPv4:     ${YELLOW}获取失败${PLAIN}"
+        fi
+        if [ -n "$CHECK_IPV6" ]; then
+            echo -e "直连 IPv6:     ${CYAN}http://[${CHECK_IPV6}]:${CURRENT_PORT}${PLAIN}"
         fi
 
         if [ -d "/etc/nginx/sites-enabled/" ]; then
@@ -324,7 +373,19 @@ install_komari() {
 
     check_dependencies || { pause; return; }
 
-    apt update && apt install -y curl wget sed socat nginx-light iptables
+    if command -v apt-get >/dev/null 2>&1; then
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -y && apt-get install -y curl wget sed socat nginx-light iptables
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y curl wget sed socat nginx iptables
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y curl wget sed socat nginx iptables
+    elif command -v apk >/dev/null 2>&1; then
+        apk add --no-cache curl wget sed socat nginx iptables
+    else
+        echo -e "${RED}❌ 不支持的包管理器，请手动安装依赖${PLAIN}"
+        pause; return
+    fi
     if [ $? -ne 0 ]; then
         echo -e "${RED}❌ 依赖安装失败！${PLAIN}"
         pause
@@ -372,10 +433,15 @@ install_komari() {
 
     CURRENT_PORT=$(get_current_port)
     PUBLIC_IP=$(get_public_ip)
+    PUBLIC_IPV6=$(get_public_ipv6)
     echo -e "\n${CYAN}🎉 全部配置完毕！现在请在浏览器打开：${PLAIN}"
     if [ -n "$PUBLIC_IP" ]; then
-        echo -e "${YELLOW}http://${PUBLIC_IP}:${CURRENT_PORT}${PLAIN}"
-    else
+        echo -e "${YELLOW}IPv4: http://${PUBLIC_IP}:${CURRENT_PORT}${PLAIN}"
+    fi
+    if [ -n "$PUBLIC_IPV6" ]; then
+        echo -e "${YELLOW}IPv6: http://[${PUBLIC_IPV6}]:${CURRENT_PORT}${PLAIN}"
+    fi
+    if [ -z "$PUBLIC_IP" ] && [ -z "$PUBLIC_IPV6" ]; then
         echo -e "${YELLOW}http://你的服务器IP:${CURRENT_PORT}${PLAIN}"
     fi
 

@@ -3,17 +3,10 @@ cat > /usr/local/bin/n <<'EOF'
 
 # ============================================
 # SSHTools 工具箱 - NAT/VPS 多功能管理面板
-# Version: v2.2.7
+# Version: v2.4.0
 # ============================================
-
-GREEN="\033[32m"
-RED="\033[31m"
-YELLOW="\033[33m"
-CYAN="\033[36m"
-BLUE="\033[34m"
-RESET="\033[0m"
-
-SCRIPT_VERSION="v2.2.7"
+...
+SCRIPT_VERSION="v2.4.0"
 
 NAT_URL="https://raw.githubusercontent.com/lijboys/SSHTools/refs/heads/main/NooMili.sh"
 MTP_URL="https://raw.githubusercontent.com/lijboys/SSHTools/refs/heads/main/mtp.sh"
@@ -261,6 +254,14 @@ update_system() {
     echo -e "          🔄 正在执行全自动系统更新"
     echo -e "${CYAN}=========================================${RESET}"
 
+    local mem_total
+    mem_total=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+    if [ -n "$mem_total" ] && [ "$mem_total" -le 256 ]; then
+        echo -e "${RED}⚠️ 小内存(${mem_total}MB)更新可能触发 OOM！建议先开 Swap${RESET}"
+        read -p "确定继续？[y/N]: " go_update
+        [[ "$go_update" != "y" && "$go_update" != "Y" ]] && { return; }
+    fi
+
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -y
@@ -306,7 +307,8 @@ clean_system() {
         yum clean all >/dev/null 2>&1
     fi
 
-    rm -rf /tmp/* /var/tmp/* >/dev/null 2>&1
+    find /tmp -type f -mmin +10 -delete 2>/dev/null
+    find /var/tmp -type f -mmin +10 -delete 2>/dev/null
 
     SPACE_AFTER=$(df / | tail -n 1 | awk '{print $3}')
     FREED_KB=$((SPACE_BEFORE - SPACE_AFTER))
@@ -361,11 +363,22 @@ nat_info_card() {
     echo -e "${YELLOW} 常用端口占用检测:${RESET}"
 
     for port in 22 80 443 8080; do
-        if ss -tlnp 2>/dev/null | grep -q ":$port "; then
-            PROC=$(ss -tlnp 2>/dev/null | grep ":$port " | head -1 | grep -oP 'users:\(\("\K[^"]+' | head -1)
-            echo -e "  端口 ${YELLOW}$port${RESET}: ${RED}已占用${RESET} ${CYAN}($PROC)${RESET}"
+        if command -v ss >/dev/null 2>&1; then
+            if ss -tlnp 2>/dev/null | grep -q ":$port "; then
+                PROC=$(ss -tlnp 2>/dev/null | grep ":$port " | head -1 | grep -oP 'users:\(\("\K[^"]+' | head -1)
+                echo -e "  端口 ${YELLOW}$port${RESET}: ${RED}已占用${RESET} ${CYAN}($PROC)${RESET}"
+            else
+                echo -e "  端口 ${YELLOW}$port${RESET}: ${GREEN}空闲${RESET}"
+            fi
+        elif command -v netstat >/dev/null 2>&1; then
+            if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+                PROC=$(netstat -tlnp 2>/dev/null | grep ":$port " | awk '{print $NF}' | head -1)
+                echo -e "  端口 ${YELLOW}$port${RESET}: ${RED}已占用${RESET} ${CYAN}($PROC)${RESET}"
+            else
+                echo -e "  端口 ${YELLOW}$port${RESET}: ${GREEN}空闲${RESET}"
+            fi
         else
-            echo -e "  端口 ${YELLOW}$port${RESET}: ${GREEN}空闲${RESET}"
+            echo -e "  端口 ${YELLOW}$port${RESET}: ${YELLOW}无法检测${RESET}"
         fi
     done
 
@@ -376,40 +389,52 @@ nat_info_card() {
 launch_mtp() {
     if [ ! -f "/usr/local/bin/mtp" ]; then
         echo -e "${YELLOW}首次进入，正在拉取 MTP 代理面板...${RESET}"
-        if ! curl -fsSL --connect-timeout 10 "${MTP_URL}" -o /usr/local/bin/mtp; then
-            echo -e "${RED}❌ 下载失败！${RESET}"
+        local tmp_sh=$(mktemp)
+        if curl -fsSL --connect-timeout 15 "${MTP_URL}" -o "$tmp_sh" 2>/dev/null; then
+            bash "$tmp_sh"
+            rm -f "$tmp_sh"
+        else
+            rm -f "$tmp_sh"
+            echo -e "${RED}❌ 下载失败，请检查网络后重试！${RESET}"
             pause
-            return
         fi
-        chmod +x /usr/local/bin/mtp
+    else
+        /usr/local/bin/mtp
     fi
-    /usr/local/bin/mtp
 }
 
 launch_komari() {
     if [ ! -f "/usr/local/bin/komari" ]; then
         echo -e "${YELLOW}首次进入，正在拉取 Komari 探针面板...${RESET}"
-        if ! curl -fsSL --connect-timeout 10 "${KOMARI_URL}" -o /usr/local/bin/komari; then
-            echo -e "${RED}❌ 下载失败！${RESET}"
+        local tmp_sh=$(mktemp)
+        if curl -fsSL --connect-timeout 15 "${KOMARI_URL}" -o "$tmp_sh" 2>/dev/null; then
+            bash "$tmp_sh"
+            rm -f "$tmp_sh"
+        else
+            rm -f "$tmp_sh"
+            echo -e "${RED}❌ 下载失败，请检查网络后重试！${RESET}"
             pause
-            return
         fi
-        chmod +x /usr/local/bin/komari
+    else
+        /usr/local/bin/komari
     fi
-    /usr/local/bin/komari
 }
 
 launch_s5() {
     if [ ! -f "/usr/local/bin/s5" ]; then
         echo -e "${YELLOW}首次进入，正在拉取 SOCKS5 管理面板...${RESET}"
-        if ! curl -fsSL --connect-timeout 10 "${SOCKS5_URL}" -o /usr/local/bin/s5; then
-            echo -e "${RED}❌ 下载失败！${RESET}"
+        local tmp_sh=$(mktemp)
+        if curl -fsSL --connect-timeout 15 "${SOCKS5_URL}" -o "$tmp_sh" 2>/dev/null; then
+            bash "$tmp_sh"
+            rm -f "$tmp_sh"
+        else
+            rm -f "$tmp_sh"
+            echo -e "${RED}❌ 下载失败，请检查网络后重试！${RESET}"
             pause
-            return
         fi
-        chmod +x /usr/local/bin/s5
+    else
+        /usr/local/bin/s5
     fi
-    /usr/local/bin/s5
 }
 
 launch_lucky() {
@@ -421,6 +446,13 @@ launch_lucky() {
     echo -e "支持自动申请 SSL 证书 + 反向代理。"
     echo -e "非常适合 NAT 小鸡使用！"
     echo -e "${CYAN}-----------------------------------------${RESET}"
+
+    local mem_total
+    mem_total=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+    if [ -n "$mem_total" ] && [ "$mem_total" -le 256 ]; then
+        echo -e "${RED}⚠️ 当前内存仅 ${mem_total}MB，Lucky 运行需要约 50-80MB。${RESET}"
+        echo -e "${YELLOW}建议先添加 Swap 再安装。(主菜单 12 -> Swap 管理)${RESET}"
+    fi
 
     if command -v lucky >/dev/null 2>&1 || [ -d "/etc/lucky" ] || [ -d "/opt/lucky" ]; then
         echo -e "${YELLOW}⚠️ 检测到 Lucky 可能已经安装。${RESET}"
@@ -452,6 +484,359 @@ run_external() {
         echo -e "${YELLOW}已取消。${RESET}"
         sleep 1
     fi
+}
+
+sys_bar() {
+    local load mem_info swap_info disk_pct
+    load=$(awk '{printf "%.1f", $1}' /proc/loadavg 2>/dev/null || echo "?")
+    mem_info=$(free -m 2>/dev/null | awk '/^Mem:/{printf "%d/%dMB",$3,$2}')
+    [ -z "$mem_info" ] && mem_info="-"
+    swap_info=$(free -m 2>/dev/null | awk '/^Swap:/{if($2>0) printf "%d/%dMB",$3,$2; else print "无"}')
+    [ -z "$swap_info" ] && swap_info="无"
+    disk_pct=$(df / 2>/dev/null | awk 'NR==2{print $5}')
+    [ -z "$disk_pct" ] && disk_pct="-"
+    echo -e "${CYAN}负载:${RESET}${YELLOW}${load}${RESET} | ${CYAN}内存:${RESET}${YELLOW}${mem_info}${RESET} | ${CYAN}Swap:${RESET}${YELLOW}${swap_info}${RESET} | ${CYAN}磁盘:${RESET}${YELLOW}${disk_pct}${RESET}"
+}
+
+sub_status() {
+    local mtp_s="-" komari_s="-" s5_s="-"
+    local mtp_c="${CYAN}" komari_c="${CYAN}" s5_c="${CYAN}"
+
+    if [ -f "/usr/local/bin/mtp" ] && [ -x "/usr/local/bin/mtg" ]; then
+        if systemctl is-active --quiet mtg 2>/dev/null || pgrep -f "mtg run" >/dev/null 2>&1; then
+            mtp_s="●" mtp_c="${GREEN}"
+        else
+            mtp_s="○" mtp_c="${YELLOW}"
+        fi
+    fi
+
+    if [ -d "/opt/komari" ]; then
+        if systemctl is-active --quiet komari 2>/dev/null; then
+            komari_s="●" komari_c="${GREEN}"
+        else
+            komari_s="○" komari_c="${YELLOW}"
+        fi
+    fi
+
+    if [ -f "/etc/s5_info.txt" ]; then
+        if systemctl is-active --quiet danted 2>/dev/null || systemctl is-active --quiet gost-s5 2>/dev/null; then
+            s5_s="●" s5_c="${GREEN}"
+        else
+            s5_s="○" s5_c="${YELLOW}"
+        fi
+    fi
+
+    echo -e "服务: ${CYAN}MTP${RESET}${mtp_c}${mtp_s}${RESET} ${CYAN}Komari${RESET}${komari_c}${komari_s}${RESET} ${CYAN}S5${RESET}${s5_c}${s5_s}${RESET}"
+}
+
+manage_swap() {
+    clear
+    echo -e "${CYAN}=========================================${RESET}"
+    echo -e "         💾 Swap 虚拟内存管理"
+    echo -e "${CYAN}=========================================${RESET}"
+
+    local swap_file="/swapfile"
+    local current_swap
+    current_swap=$(free -m 2>/dev/null | awk '/^Swap:/{print $2}')
+    [ -z "$current_swap" ] && current_swap=0
+
+    echo -e "当前 Swap: ${YELLOW}${current_swap}MB${RESET}"
+    echo -e "${CYAN}-----------------------------------------${RESET}"
+
+    local total_mem
+    total_mem=$(free -m 2>/dev/null | awk '/^Mem:/{print $2}')
+
+    if [ "$current_swap" -gt 0 ]; then
+        echo -e "  ${GREEN}1.${RESET} 修改 Swap 大小"
+        echo -e "  ${RED}2.${RESET} 删除 Swap"
+        echo -e "  ${GREEN}0.${RESET} 返回"
+        read -p "选择: " sw_choice
+        case "$sw_choice" in
+            1) ;;
+            2)
+                swapoff "$swap_file" 2>/dev/null
+                sed -i '/swapfile/d' /etc/fstab 2>/dev/null
+                rm -f "$swap_file"
+                echo -e "${GREEN}✅ Swap 已删除！${RESET}"
+                pause; return
+                ;;
+            *) return ;;
+        esac
+    fi
+
+    echo ""
+    echo -e "${YELLOW}当前物理内存: ${total_mem}MB${RESET}"
+    if [ "$total_mem" -le 256 ]; then
+        echo -e "${YELLOW}💡 内存较小，建议开 ${total_mem}~$((total_mem*2))MB Swap${RESET}"
+    fi
+    echo -e "  ${GREEN}1.${RESET} $((total_mem))MB (1倍内存)"
+    echo -e "  ${GREEN}2.${RESET} $((total_mem*2))MB (2倍内存)"
+    echo -e "  ${GREEN}3.${RESET} 512MB"
+    echo -e "  ${GREEN}4.${RESET} 1024MB"
+    echo -e "  ${GREEN}5.${RESET} 自定义大小"
+    echo -e "  ${GREEN}0.${RESET} 返回"
+    read -p "请选择: " size_choice
+
+    local swap_size
+    case "$size_choice" in
+        1) swap_size=$((total_mem)) ;;
+        2) swap_size=$((total_mem*2)) ;;
+        3) swap_size="512" ;;
+        4) swap_size="1024" ;;
+        5) read -p "输入大小(MB): " swap_size ;;
+        *) return ;;
+    esac
+
+    [ -z "$swap_size" ] || ! [[ "$swap_size" =~ ^[0-9]+$ ]] || [ "$swap_size" -lt 32 ] && { echo -e "${RED}输入无效${RESET}"; pause; return; }
+    [ "$swap_size" -gt 4096 ] && { echo -e "${YELLOW}超过4GB不建议${RESET}"; pause; return; }
+
+    echo -e "${YELLOW}正在创建 ${swap_size}MB Swap...${RESET}"
+    swapoff "$swap_file" 2>/dev/null
+    rm -f "$swap_file"
+
+    if command -v fallocate >/dev/null 2>&1; then
+        fallocate -l "${swap_size}M" "$swap_file" 2>/dev/null || {
+            echo -e "${RED}❌ 磁盘空间不足${RESET}"; pause; return
+        }
+    else
+        dd if=/dev/zero of="$swap_file" bs=1048576 count="$swap_size" 2>/dev/null || {
+            echo -e "${RED}❌ 创建失败(磁盘空间不足?)${RESET}"; pause; return
+        }
+    fi
+
+    chmod 600 "$swap_file"
+    mkswap "$swap_file" >/dev/null 2>&1
+    swapon "$swap_file" >/dev/null 2>&1
+
+    if swapon --show 2>/dev/null | grep -q "$swap_file"; then
+        sed -i '/swapfile/d' /etc/fstab 2>/dev/null
+        echo "$swap_file none swap sw 0 0" >> /etc/fstab
+        echo -e "${GREEN}✅ Swap ${swap_size}MB 创建成功！${RESET}"
+        free -m | grep -i swap
+    else
+        echo -e "${RED}❌ Swap 启用失败！${RESET}"
+    fi
+    pause
+}
+
+enable_bbr() {
+    clear
+    echo -e "${CYAN}=========================================${RESET}"
+    echo -e "        🚀 BBR 网络加速一键开启"
+    echo -e "${CYAN}=========================================${RESET}"
+
+    local current_cc
+    current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
+    if [ "$current_cc" = "bbr" ]; then
+        echo -e "${GREEN}✅ BBR 已开启！${RESET}"
+        echo -e "当前算法: ${YELLOW}${current_cc}${RESET}"
+        pause
+        return
+    fi
+
+    local kernel_ver major minor
+    kernel_ver=$(uname -r)
+    major=$(echo "$kernel_ver" | cut -d. -f1)
+    minor=$(echo "$kernel_ver" | cut -d. -f2)
+
+    if [ "$major" -lt 4 ] 2>/dev/null || { [ "$major" -eq 4 ] && [ "$minor" -lt 9 ] 2>/dev/null; }; then
+        echo -e "${RED}内核版本: ${kernel_ver}${RESET}"
+        echo -e "${YELLOW}BBR 需要内核 4.9+，当前版本过低${RESET}"
+        echo -e "${YELLOW}建议升级内核后重试(需重启VPS)${RESET}"
+        pause; return
+    fi
+
+    echo -e "${YELLOW}正在开启 BBR...${RESET}"
+    modprobe tcp_bbr 2>/dev/null
+    sed -i '/net.core.default_qdisc/d;/net.ipv4.tcp_congestion_control/d' /etc/sysctl.conf 2>/dev/null
+    cat >> /etc/sysctl.conf <<'SYSCTL_EOF'
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+SYSCTL_EOF
+    sysctl -p >/dev/null 2>&1
+
+    current_cc=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null)
+    if [ "$current_cc" = "bbr" ]; then
+        echo -e "${GREEN}✅ BBR 开启成功！${RESET}"
+        echo -e "当前算法: ${YELLOW}${current_cc}${RESET}"
+    else
+        echo -e "${RED}❌ BBR 开启失败${RESET}"
+        echo -e "${YELLOW}提示: 部分VPS需母机开启对应内核模块${RESET}"
+    fi
+    pause
+}
+
+ssh_harden() {
+    clear
+    echo -e "${CYAN}=========================================${RESET}"
+    echo -e "       🔐 SSH 安全加固管理"
+    echo -e "${CYAN}=========================================${RESET}"
+
+    local ssh_port
+    ssh_port=$(grep -E '^Port ' /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}')
+    [ -z "$ssh_port" ] && ssh_port="22"
+
+    echo -e "当前SSH端口: ${GREEN}${ssh_port}${RESET}"
+    echo -e "${CYAN}-----------------------------------------${RESET}"
+    echo -e "  ${GREEN}1.${RESET} 修改 SSH 端口"
+    echo -e "  ${GREEN}2.${RESET} 禁用 root 密码登录 (改用密钥)"
+    echo -e "  ${GREEN}3.${RESET} 一键安装公钥 (从 url 拉取)"
+    echo -e "  ${YELLOW}4.${RESET} 恢复默认: 22端口 + 允许密码"
+    echo -e "  ${GREEN}0.${RESET} 返回"
+    read -p "选择: " sh_choice
+
+    case "$sh_choice" in
+        1)
+            read -p "输入新 SSH 端口 (1024-65535): " new_port
+            if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1024 ] || [ "$new_port" -gt 65535 ]; then
+                echo -e "${RED}端口无效${RESET}"; pause; return
+            fi
+            sed -i "s/^#\{0,1\}Port .*/Port ${new_port}/" /etc/ssh/sshd_config
+            grep -q "^Port " /etc/ssh/sshd_config || echo "Port ${new_port}" >> /etc/ssh/sshd_config
+            if command -v iptables >/dev/null 2>&1; then
+                iptables -I INPUT -p tcp --dport "$new_port" -j ACCEPT 2>/dev/null
+            fi
+            systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || /etc/init.d/ssh restart 2>/dev/null
+            echo -e "${GREEN}✅ SSH 端口已改为 ${new_port}${RESET}"
+            echo -e "${YELLOW}⚠️ 请用新端口重新连接！当前连接不受影响${RESET}"
+            ;;
+        2)
+            sed -i 's/^#\{0,1\}PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+            sed -i 's/^#\{0,1\}PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
+            sed -i 's/^#\{0,1\}PubkeyAuthentication .*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+            systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || /etc/init.d/ssh restart 2>/dev/null
+            echo -e "${GREEN}✅ 已禁用密码登录，仅允许密钥${RESET}"
+            echo -e "${YELLOW}⚠️ 确保已配置公钥，否则 SSH 会锁死！${RESET}"
+            ;;
+        3)
+            read -p "输入公钥 URL (如 https://example.com/key.pub): " key_url
+            [ -z "$key_url" ] && { echo -e "${RED}URL为空${RESET}"; pause; return; }
+            mkdir -p /root/.ssh
+            if curl -fsSL --connect-timeout 10 "$key_url" >> /root/.ssh/authorized_keys 2>/dev/null; then
+                chmod 700 /root/.ssh
+                chmod 600 /root/.ssh/authorized_keys
+                echo -e "${GREEN}✅ 公钥已安装${RESET}"
+            else
+                echo -e "${RED}❌ 公钥下载失败${RESET}"
+            fi
+            ;;
+        4)
+            sed -i 's/^#\{0,1\}Port .*/Port 22/' /etc/ssh/sshd_config
+            sed -i 's/^#\{0,1\}PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config
+            sed -i 's/^#\{0,1\}PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+            systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || /etc/init.d/ssh restart 2>/dev/null
+            echo -e "${GREEN}✅ SSH 已恢复默认配置${RESET}"
+            ;;
+    esac
+    pause
+}
+
+proc_guard() {
+    clear
+    echo -e "${CYAN}=========================================${RESET}"
+    echo -e "       🔄 进程保活 / 崩溃自愈"
+    echo -e "${CYAN}=========================================${RESET}"
+
+    echo -e "${YELLOW}检测已安装服务状态...${RESET}"
+    echo ""
+
+    local has_any=""
+    local cron_needed=""
+
+    if [ -f "/usr/local/bin/mtp" ] && [ -x "/usr/local/bin/mtg" ]; then
+        has_any="1"
+        if systemctl is-active --quiet mtg 2>/dev/null || pgrep -f "mtg run" >/dev/null 2>&1; then
+            echo -e "  ${CYAN}MTP mtg${RESET}  ${GREEN}运行中${RESET} (systemd/Restart=always)"
+        else
+            echo -e "  ${CYAN}MTP mtg${RESET}  ${RED}已停止${RESET}"
+            cron_needed="1"
+        fi
+    fi
+
+    if [ -d "/opt/komari" ]; then
+        has_any="1"
+        if systemctl is-active --quiet komari 2>/dev/null; then
+            echo -e "  ${CYAN}Komari${RESET}    ${GREEN}运行中${RESET}"
+        else
+            echo -e "  ${CYAN}Komari${RESET}    ${RED}已停止${RESET}"
+            cron_needed="1"
+        fi
+    fi
+
+    if [ -f "/etc/s5_info.txt" ]; then
+        has_any="1"
+        if systemctl is-active --quiet danted 2>/dev/null || systemctl is-active --quiet gost-s5 2>/dev/null; then
+            echo -e "  ${CYAN}S5${RESET}        ${GREEN}运行中${RESET} (Restart=always)"
+        else
+            echo -e "  ${CYAN}S5${RESET}        ${RED}已停止${RESET}"
+            cron_needed="1"
+        fi
+    fi
+
+    if [ -z "$has_any" ]; then
+        echo -e "${YELLOW}未检测到任何已安装的服务${RESET}"
+        pause; return
+    fi
+
+    echo ""
+    echo -e "${CYAN}-----------------------------------------${RESET}"
+    echo -e "说明: systemd 服务已自带 Restart=always，崩溃会自动拉起"
+    echo -e "      非 systemd 环境或极端情况，可安装 cron 巡检兜底"
+    echo -e "${CYAN}-----------------------------------------${RESET}"
+    echo ""
+
+    local CRON_TAG="# SSHTools-proc-guard"
+    local has_cron=""
+    crontab -l 2>/dev/null | grep -q "$CRON_TAG" && has_cron="1"
+
+    if [ -n "$has_cron" ]; then
+        echo -e "  cron 巡检: ${GREEN}已安装${RESET}"
+        echo ""
+        echo -e "  ${RED}9.${RESET} 卸载 cron 巡检"
+    else
+        echo -e "  cron 巡检: ${YELLOW}未安装${RESET}"
+        echo ""
+        echo -e "  ${GREEN}1.${RESET} 安装 cron 巡检 (每5分钟检测，崩溃自动拉起)"
+    fi
+
+    echo -e "  ${GREEN}2.${RESET} 一键重启所有已停止服务"
+    echo -e "  ${GREEN}0.${RESET} 返回"
+    read -p "选择: " pg_choice
+
+    case "$pg_choice" in
+        1)
+            if [ -n "$has_cron" ]; then
+                echo -e "${YELLOW}cron 巡检已安装${RESET}"
+                pause; return
+            fi
+            crontab -l 2>/dev/null | grep -v "$CRON_TAG" > /tmp/sshtools_cron
+            cat >> /tmp/sshtools_cron <<'GUARD_CRON'
+# SSHTools-proc-guard — 每5分钟巡检服务
+# MTP mtg
+*/5 * * * * [ ! -x /usr/local/bin/mtg ] && exit 0; { command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet mtg; } || pgrep -f "mtg run" >/dev/null 2>&1 || rc-service mtg status >/dev/null 2>&1 || { command -v systemctl >/dev/null 2>&1 && systemctl start mtg; } || { [ -f /etc/init.d/mtg ] && rc-service mtg start; } || { [ -f /usr/local/bin/mtg_guard.sh ] && nohup setsid /usr/local/bin/mtg_guard.sh >/dev/null 2>&1 &; }
+# Komari
+*/5 * * * * [ ! -d /opt/komari ] && exit 0; { command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet komari; } || pgrep -f komari >/dev/null 2>&1 || { command -v systemctl >/dev/null 2>&1 && systemctl start komari; }
+# S5 (dante or gost)
+*/5 * * * * [ ! -f /etc/s5_info.txt ] && exit 0; { command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet danted; } || { command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet gost-s5; } || rc-service danted status >/dev/null 2>&1 || pgrep -f sockd >/dev/null 2>&1 || { command -v systemctl >/dev/null 2>&1 && { systemctl start danted; systemctl start gost-s5; }; } || { [ -f /etc/init.d/danted ] && rc-service danted start; }
+GUARD_CRON
+            crontab /tmp/sshtools_cron 2>/dev/null
+            rm -f /tmp/sshtools_cron
+            echo -e "${GREEN}✅ cron 巡检已安装！每5分钟自动拉起崩溃服务${RESET}"
+            echo -e "${YELLOW}适用于低配机器 OOM/意外退出场景${RESET}"
+            ;;
+        9)
+            crontab -l 2>/dev/null | grep -v "$CRON_TAG" | { [ -s /dev/stdin ] && crontab - || true; }
+            echo -e "${GREEN}✅ cron 巡检已卸载${RESET}"
+            ;;
+        2)
+            echo -e "${YELLOW}正在重启所有已停止服务...${RESET}"
+            [ -f "/usr/local/bin/mtp" ] && ! systemctl is-active --quiet mtg 2>/dev/null && ! pgrep -f "mtg run" >/dev/null 2>&1 && { systemctl start mtg 2>/dev/null || true; echo "  MTP 已重启"; }
+            [ -d "/opt/komari" ] && ! systemctl is-active --quiet komari 2>/dev/null && { systemctl start komari 2>/dev/null || true; echo "  Komari 已重启"; }
+            [ -f "/etc/s5_info.txt" ] && ! systemctl is-active --quiet danted 2>/dev/null && ! systemctl is-active --quiet gost-s5 2>/dev/null && { systemctl start danted 2>/dev/null; systemctl start gost-s5 2>/dev/null; echo "  S5 已重启"; }
+            echo -e "${GREEN}✅ 完成${RESET}"
+            ;;
+    esac
+    pause
 }
 
 update_nat() {
@@ -494,7 +879,7 @@ uninstall_nat() {
                 rm -f /etc/systemd/system/mtg.service
                 systemctl daemon-reload
                 pkill -f "mtg run" 2>/dev/null
-                crontab -l 2>/dev/null | grep -v "mtg run" | crontab -
+                crontab -l 2>/dev/null | grep -v "mtg run" | { [ -s /dev/stdin ] && crontab - || true; }
                 rm -f /usr/local/bin/mtg /etc/mtg.toml /etc/mtg_info.txt /usr/local/bin/mtp
             fi
             if [ -f "/usr/local/bin/komari" ]; then
@@ -527,31 +912,31 @@ uninstall_nat() {
 while true; do
     clear
     echo -e "${CYAN} _    _             __  __ _ _ _ ${RESET}"
-    echo -e "${CYAN}| \ | |           |  \/  (_) (_) ${RESET}"
-    echo -e "${CYAN}|  \| | ___   ___ | \  / |_| |_  ${RESET}"
-    echo -e "${CYAN}| . \` |/ _ \ / _ \| |\/| | | | | ${RESET}"
-    echo -e "${CYAN}| |\  | (_) | (_) | |  | | | | | ${RESET}"
-    echo -e "${CYAN}\_| \_/\___/ \___/\_|  |_/_|_|_| ${RESET}"
+    echo -e "${CYAN}| \\ | |           |  \\/  (_) (_) ${RESET}"
+    echo -e "${CYAN}|  \\| | ___   ___ | \\  / |_| |_  ${RESET}"
+    echo -e "${CYAN}| . \\\` |/ _ \\ / _ \\| |\\/| | | | | ${RESET}"
+    echo -e "${CYAN}| |\\  | (_) | (_) | |  | | | | | ${RESET}"
+    echo -e "${CYAN}\\_| \\_/\\___/ \\___/\\_|  |_/_|_|_| ${RESET}"
     echo -e "${CYAN}=========================================${RESET}"
     echo -e " SSHTools工具箱 ${GREEN}${SCRIPT_VERSION}${RESET}"
     echo -e " 命令行输入 ${YELLOW}n${RESET} 可快速启动脚本"
+    echo -e "${CYAN}--- 系统概况 ---${RESET}"
+    sys_bar
+    sub_status
     echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${GREEN}1.${RESET} 系统信息查询"
-    echo -e "  ${GREEN}2.${RESET} 系统更新"
-    echo -e "  ${GREEN}3.${RESET} 系统清理"
-    echo -e "  ${GREEN}4.${RESET} 📇 NAT 信息卡"
+    echo -e "  ${GREEN}1.${RESET} 系统信息查询    ${GREEN}2.${RESET} 系统更新"
+    echo -e "  ${GREEN}3.${RESET} 系统清理        ${GREEN}4.${RESET} 📇 NAT 信息卡"
     echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${GREEN}5.${RESET} 进入 MTP 代理管理面板"
-    echo -e "  ${GREEN}6.${RESET} 进入 Komari 探针管理面板"
-    echo -e "  ${GREEN}7.${RESET} 进入 SOCKS5 管理面板"
-    echo -e "  ${GREEN}8.${RESET} 🛡️ 安装 SSL 面板 (Lucky)"
+    echo -e "  ${GREEN}5.${RESET} MTP 代理面板    ${GREEN}6.${RESET} Komari 探针面板"
+    echo -e "  ${GREEN}7.${RESET} SOCKS5 面板     ${GREEN}8.${RESET} 🛡️ Lucky SSL"
     echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${YELLOW}9.${RESET} 老王一键工具箱"
-    echo -e "  ${YELLOW}10.${RESET} 科技lion一键脚本"
+    echo -e "  ${GREEN}9.${RESET} 老王工具箱      ${GREEN}10.${RESET} 科技lion脚本"
     echo -e "${CYAN}-----------------------------------------${RESET}"
-    echo -e "  ${CYAN}u.${RESET} 更新主控脚本"
-    echo -e "  ${RED}x.${RESET} 卸载工具箱"
-    echo -e "  ${GREEN}0.${RESET} 退出面板"
+    echo -e "  ${GREEN}11.${RESET} 🚀 BBR 加速     ${GREEN}12.${RESET} 💾 Swap 管理"
+    echo -e "  ${GREEN}13.${RESET} 🔐 SSH 加固     ${GREEN}14.${RESET} 🔄 进程保活"
+    echo -e "${CYAN}-----------------------------------------${RESET}"
+    echo -e "  ${CYAN}u.${RESET} 更新主控       ${RED}x.${RESET} 卸载工具箱"
+    echo -e "  ${GREEN}0.${RESET} 退出"
     echo -e "${CYAN}=========================================${RESET}"
     read -p "请输入你的选择: " choice
 
@@ -566,6 +951,10 @@ while true; do
         8) launch_lucky ;;
         9) run_external "老王一键工具箱" "bash <(curl -fsSL ssh_tool.eooce.com)" ;;
         10) run_external "科技lion一键脚本" "bash <(curl -sL kejilion.sh)" ;;
+        11) enable_bbr ;;
+        12) manage_swap ;;
+        13) ssh_harden ;;
+        14) proc_guard ;;
         u|U) update_nat ;;
         x|X) uninstall_nat ;;
         0) clear; exit 0 ;;
@@ -576,3 +965,6 @@ EOF
 
 chmod +x /usr/local/bin/n
 echo -e "\033[32m✅ 主控脚本已更新：默认思路回归 IPv4，同时保留 IPv6 校准能力。\033[0m"
+echo -e "\033[33m正在启动主控面板...\033[0m"
+sleep 1
+exec /usr/local/bin/n
