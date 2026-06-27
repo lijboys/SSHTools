@@ -1,6 +1,13 @@
 cat > /usr/local/bin/n <<'EOF'
 #!/bin/bash
 
+GREEN="\033[32m"
+RED="\033[31m"
+YELLOW="\033[33m"
+CYAN="\033[36m"
+BLUE="\033[34m"
+RESET="\033[0m"
+
 # ============================================
 # SSHTools 工具箱 - NAT/VPS 多功能管理面板
 # Version: v2.6.0
@@ -647,7 +654,7 @@ manage_swap() {
 enable_bbr() {
     clear
     echo -e "${CYAN}=========================================${RESET}"
-    echo -e "        🚀 BBR 网络加速一键开启"
+    echo -e "         🚀 BBR 网络加速一键开启"
     echo -e "${CYAN}=========================================${RESET}"
 
     local current_cc
@@ -694,7 +701,7 @@ SYSCTL_EOF
 ssh_harden() {
     clear
     echo -e "${CYAN}=========================================${RESET}"
-    echo -e "       🔐 SSH 安全加固管理"
+    echo -e "        🔐 SSH 安全加固管理"
     echo -e "${CYAN}=========================================${RESET}"
 
     local ssh_port
@@ -759,7 +766,7 @@ ssh_harden() {
 proc_guard() {
     clear
     echo -e "${CYAN}=========================================${RESET}"
-    echo -e "       🔄 进程保活 / 崩溃自愈"
+    echo -e "        🔄 进程保活 / 崩溃自愈"
     echo -e "${CYAN}=========================================${RESET}"
 
     echo -e "${YELLOW}检测已安装服务状态...${RESET}"
@@ -962,20 +969,9 @@ update_scripts_menu() {
         3) [ -n "$has_s5" ]     && { echo ""; do_update_one "s5"     "$SOCKS5_URL"; } || echo -e "${RED}S5 未安装${RESET}" ;;
         4) [ -n "$has_komari" ] && { echo ""; do_update_one "komari" "$KOMARI_URL"; } || echo -e "${RED}Komari 未安装${RESET}" ;;
         5) [ -n "$has_sbox" ]   && { echo ""; do_update_one "sbox"   "$SBOX_URL"; } || echo -e "${RED}SBox 未安装${RESET}" ;;
+        0) return ;;
+        *) echo -e "${RED}输入错误！${RESET}" ;;
     esac
-    pause
-}
-
-    update_one "mtp"    "$MTP_URL"
-    update_one "s5"     "$SOCKS5_URL"
-    update_one "komari" "$KOMARI_URL"
-    update_one "sbox"   "$SBOX_URL"
-
-    echo ""
-    echo -e "${CYAN}=========================================${RESET}"
-    [ "$updated" -gt 0 ] && echo -e "${GREEN}✅ ${updated} 个脚本已更新，下次启动生效${RESET}"
-    [ "$failed" -gt 0 ]  && echo -e "${RED}❌ ${failed} 个脚本更新失败${RESET}"
-    [ "$updated" -eq 0 ] && [ "$failed" -eq 0 ] && [ "$skipped" -eq 4 ] && echo -e "${YELLOW}未检测到任何已安装的服务脚本${RESET}"
     pause
 }
 
@@ -1028,11 +1024,11 @@ uninstall_nat() {
 while true; do
     clear
     echo -e "${CYAN} _    _             __  __ _ _ _ ${RESET}"
-    echo -e "${CYAN}| \\ | |           |  \\/  (_) (_) ${RESET}"
-    echo -e "${CYAN}|  \\| | ___   ___ | \\  / |_| |_  ${RESET}"
-    echo -e "${CYAN}| . \\\` |/ _ \\ / _ \\| |\\/| | | | | ${RESET}"
-    echo -e "${CYAN}| |\\  | (_) | (_) | |  | | | | | ${RESET}"
-    echo -e "${CYAN}\\_| \\_/\\___/ \\___/\\_|  |_/_|_|_| ${RESET}"
+    echo -e "${CYAN}| \ | |           |  \/  (_) (_) ${RESET}"
+    echo -e "${CYAN}|  \| | ___   ___ | \  / |_| |_  ${RESET}"
+    echo -e "${CYAN}| . \` |/ _ \ / _ \| |\/| | | | | ${RESET}"
+    echo -e "${CYAN}| |\  | (_) | (_) | |  | | | | | ${RESET}"
+    echo -e "${CYAN}\_| \_/\___/ \___/\_|  |_/_|_|_| ${RESET}"
     echo -e "${CYAN}══════════════════════════════════════${RESET}"
     echo -e "  ${GREEN}░ SSHTools 工具箱${RESET}  ${YELLOW}${SCRIPT_VERSION}${RESET}  ${CYAN}快捷指令:${RESET} ${GREEN}n${RESET}"
     echo -e "${CYAN}══════════════════════════════════════${RESET}"
@@ -1084,7 +1080,7 @@ done
 EOF
 
 chmod +x /usr/local/bin/n
-echo -e "\033[32m✅ 主控脚本已更新：默认思路回归 IPv4，同时保留 IPv6 校准能力。\033[0m"
+echo -e "\033[32m✅ 主控脚本已更新，致命 Bug 已彻底修复！\033[0m"
 echo -e "\033[33m正在启动主控面板...\033[0m"
 sleep 1
 exec /usr/local/bin/n
